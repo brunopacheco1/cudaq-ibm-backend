@@ -21,8 +21,44 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+import logging
+
 from qiskit import QuantumCircuit, transpile
+from qiskit.circuit.library import PhaseGate, RZGate, U1Gate
+from qiskit.circuit.library.standard_gates import get_standard_gate_name_mapping
 from qiskit.transpiler import CouplingMap, Target
+
+log = logging.getLogger(__name__)
+
+
+def usable_basis_gates(basis_gates: list[str]) -> list[str]:
+    """Keep only the gates we can safely target. This mirrors what IBM's own
+    ``qiskit-ibm-runtime`` client does when it builds a Target.
+
+    * **Unknown gates** (for example ``xslow``) are IBM-internal pulse
+      variants with no standard Qiskit definition. They are dropped.
+    * **Fractional gates** (for example ``rx(θ)``, ``rzz(θ)``) take a
+      continuous angle *and* cost real pulse time. IBM accepts them only when
+      the job opts in to "fractional gates", and they cannot be mixed with
+      dynamic circuits, so they are dropped by default. ``rz`` is kept: IBM
+      does it "virtually" (a frame change, zero time), so it is not
+      fractional.
+    * ``id`` is just "wait one gate length", never needed by the transpiler.
+    """
+    standard = get_standard_gate_name_mapping()
+    keep, dropped = [], []
+    for name in basis_gates:
+        gate = standard.get(name)
+        fractional = gate is not None and gate.params and not isinstance(
+            gate, (RZGate, PhaseGate, U1Gate)
+        )
+        if gate is None or fractional or name == "id":
+            dropped.append(name)
+        else:
+            keep.append(name)
+    if dropped:
+        log.info("Ignoring backend gates: %s", ", ".join(dropped))
+    return keep
 
 
 def target_from_configuration(configuration: Mapping[str, Any]) -> Target:
@@ -32,7 +68,7 @@ def target_from_configuration(configuration: Mapping[str, Any]) -> Target:
     ``/properties`` endpoint) are ignored for now; using them would let the
     transpiler pick the best qubits. That is a good next learning step.
     """
-    basis = [g for g in configuration["basis_gates"] if g != "id"]
+    basis = usable_basis_gates(list(configuration["basis_gates"]))
     edges = configuration.get("coupling_map")
     return Target.from_configuration(
         basis_gates=basis + ["measure"],
