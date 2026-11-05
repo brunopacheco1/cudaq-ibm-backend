@@ -32,7 +32,14 @@ def _registers(circuit: QuantumCircuit) -> list[tuple[str, int]]:
 
 
 def client_from_env() -> IBMQuantumClient:
-    """Build a client from ``IBM_QUANTUM_API_KEY`` and ``IBM_QUANTUM_CRN``."""
+    """Build a client from ``IBM_QUANTUM_API_KEY`` and ``IBM_QUANTUM_CRN``.
+
+    Values come from the environment, or from a ``.env`` file in the current
+    directory (or a parent). Real environment variables win over ``.env``.
+    """
+    from dotenv import find_dotenv, load_dotenv
+
+    load_dotenv(find_dotenv(usecwd=True), override=False)
     try:
         return IBMQuantumClient(
             api_key=os.environ["IBM_QUANTUM_API_KEY"],
