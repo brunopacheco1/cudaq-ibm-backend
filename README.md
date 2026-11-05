@@ -7,9 +7,10 @@ hardware providers, but **IBM is not one of them**. This project adds that
 missing link. It is also a learning project, so the code explains the
 quantum ideas behind each step.
 
-> **Status: phase 1, a Python prototype.** It works against a local noisy
-> copy of an IBM chip and against a fake IBM server in tests. It has **not yet
-> been run on a real IBM QPU**. Expect breaking changes.
+> **Status: phase 1, a Python prototype.** First real-hardware run on
+> 2026-11-05: a Bell pair on `ibm_fez` (1000 shots) returned
+> `{'00': 507, '11': 444, '01': 37, '10': 12}`, so 95% of results were
+> correlated as expected and the other 5% is hardware noise. Expect breaking changes.
 
 ## Quick start
 
@@ -96,8 +97,6 @@ IBM, and a fake chip (`FakeFez`) stands in for the hardware.
 - Only the Sampler (counts). No Estimator (expectation values) yet.
 - The transpiler ignores qubit error rates, so it may pick noisy qubits.
 - There is no error mitigation, sessions or batching.
-- The REST result layout follows IBM's docs and has not yet been checked
-  against a real job.
 
 ## Roadmap
 
