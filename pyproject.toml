@@ -8,7 +8,7 @@ version = "0.1.0.dev0"
 description = "Run CUDA-Q kernels on IBM Quantum hardware (learning prototype)."
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"  # CUDA-Q 0.16 ships wheels for 3.11-3.14 only
 dependencies = [
     "cudaq>=0.16,<0.17",
     "qiskit>=2.0,<3",

@@ -14,7 +14,7 @@ quantum ideas behind each step.
 ## Quick start
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate   # Python 3.11 to 3.14
+python3 -m venv .venv && source .venv/bin/activate   # Python 3.11 to 3.14 (CUDA-Q has no 3.15 wheels yet)
 pip install -e ".[local]"      # Linux, WSL or Apple Silicon Mac (macOS 13+)
 python examples/bell.py        # ideal vs. noisy IBM simulation, no account needed
 ```
