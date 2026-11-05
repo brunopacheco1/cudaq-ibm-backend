@@ -19,6 +19,17 @@ def test_isa_uses_only_native_gates(fez_configuration):
     assert "h" not in isa.count_ops()
 
 
+def test_unknown_and_fractional_gates_are_dropped(fez_configuration):
+    # Real ibm_fez (Nov 2026) lists "xslow"; some IBM chips also list fractional "rx"/"rzz".
+    config = dict(fez_configuration)
+    config["basis_gates"] = config["basis_gates"] + ["xslow", "rx", "rzz"]
+    target = target_from_configuration(config)
+    assert {"xslow", "rx", "rzz", "id"}.isdisjoint(target.operation_names)
+    assert {"cz", "rz", "sx", "x", "measure"} <= set(target.operation_names)
+    isa = to_isa(kernel_to_circuit(bell), target)
+    assert set(isa.count_ops()) <= {"cz", "rz", "sx", "x", "measure", "barrier"}
+
+
 def test_local_run_matches_cudaq_bit_order():
     expected = cudaq.sample(x_on_first).most_probable()
     result = simulate_locally(x_on_first, shots=500)
