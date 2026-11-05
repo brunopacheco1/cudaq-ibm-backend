@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "cudaq>=0.16,<0.17",
     "qiskit>=2.0,<3",
+    "python-dotenv>=1.0",
     "requests>=2.31",
 ]
 

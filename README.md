@@ -14,7 +14,8 @@ quantum ideas behind each step.
 ## Quick start
 
 ```bash
-pip install -e ".[local]"      # Linux, WSL or Apple Silicon Mac (CUDA-Q wheels)
+python3 -m venv .venv && source .venv/bin/activate   # Python 3.11 to 3.14
+pip install -e ".[local]"      # Linux, WSL or Apple Silicon Mac (macOS 13+)
 python examples/bell.py        # ideal vs. noisy IBM simulation, no account needed
 ```
 
@@ -66,11 +67,17 @@ CUDA-Q style counts ◄── hex samples ◄── IBM Sampler job (REST, clien
 You need an [IBM Quantum Platform](https://quantum.cloud.ibm.com) account. The
 free Open Plan gives about 10 minutes of QPU time per rolling 28 days.
 
-Set two environment variables. Never commit them or paste them anywhere public.
+Put two values in a `.env` file at the repo root (it is git-ignored), or
+export them as environment variables. Never commit them or paste them
+anywhere public.
 
 ```bash
-export IBM_QUANTUM_API_KEY="..."   # IBM Cloud API key
-export IBM_QUANTUM_CRN="crn:v1:..." # your instance's CRN (instance page)
+# .env
+IBM_QUANTUM_API_KEY=...        # IBM Cloud API key
+IBM_QUANTUM_CRN=crn:v1:...     # your instance's CRN (instance page)
+```
+
+```bash
 python examples/bell.py ibm_fez
 ```
 

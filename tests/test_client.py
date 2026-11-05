@@ -64,3 +64,14 @@ def test_token_is_cached(client):
     client.job_status("a")
     client.job_status("a")
     assert sum(1 for c in responses.calls if c.request.url == IAM) == 1
+
+
+def test_client_from_env_reads_dotenv(tmp_path, monkeypatch):
+    from cudaq_ibm import client_from_env
+
+    monkeypatch.delenv("IBM_QUANTUM_API_KEY", raising=False)
+    monkeypatch.delenv("IBM_QUANTUM_CRN", raising=False)
+    (tmp_path / ".env").write_text("IBM_QUANTUM_API_KEY=k\nIBM_QUANTUM_CRN=crn:x\n")
+    monkeypatch.chdir(tmp_path)
+    client = client_from_env()
+    assert (client.api_key, client.crn) == ("k", "crn:x")
