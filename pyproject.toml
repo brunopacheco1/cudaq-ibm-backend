@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cudaq-ibm-backend"
+version = "0.1.0.dev0"
+description = "Run CUDA-Q kernels on IBM Quantum hardware (learning prototype)."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "cudaq>=0.16,<0.17",
+    "qiskit>=2.0,<3",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+# Local noisy simulation with fake IBM devices (no account needed).
+local = ["qiskit-ibm-runtime>=0.40", "qiskit-aer>=0.17"]
+test = ["cudaq-ibm-backend[local]", "pytest>=8", "responses>=0.25"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::UserWarning", "ignore::FutureWarning", "ignore::DeprecationWarning"]

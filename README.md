@@ -1,0 +1,107 @@
+# cudaq-ibm-backend
+
+Run [CUDA-Q](https://github.com/NVIDIA/cuda-quantum) kernels on IBM Quantum hardware.
+
+CUDA-Q is NVIDIA's open-source, vendor-neutral quantum SDK. It supports many
+hardware providers, but **IBM is not one of them**. This project adds that
+missing link. It is also a learning project, so the code explains the
+quantum ideas behind each step.
+
+> **Status: phase 1, a Python prototype.** It works against a local noisy
+> copy of an IBM chip and against a fake IBM server in tests. It has **not yet
+> been run on a real IBM QPU**. Expect breaking changes.
+
+## Quick start
+
+```bash
+pip install -e ".[local]"      # Linux, WSL or Apple Silicon Mac (CUDA-Q wheels)
+python examples/bell.py        # ideal vs. noisy IBM simulation, no account needed
+```
+
+```python
+import cudaq
+from cudaq_ibm import simulate_locally, run_on_ibm
+
+@cudaq.kernel
+def bell():
+    q = cudaq.qvector(2)
+    h(q[0]); cx(q[0], q[1])
+    mz(q)
+
+simulate_locally(bell).counts                 # {'00': 483, '11': 484, '01': 17, '10': 16}
+run_on_ibm(bell, backend="ibm_fez").counts    # real hardware, needs credentials
+```
+
+## How it works
+
+```
+CUDA-Q kernel ──► OpenQASM 2 ──► Qiskit circuit ──► ISA circuit ──► OpenQASM 3
+   (convert.py)                                       (isa.py)          │
+                                                                        ▼
+CUDA-Q style counts ◄── hex samples ◄── IBM Sampler job (REST, client.py)
+   (results.py)
+```
+
+1. **Export** (`convert.py`). CUDA-Q prints the kernel as OpenQASM 2, a text
+   format for circuits. Kernels with arguments are first *synthesized*: the
+   argument values are baked into the circuit.
+2. **Make it hardware-ready** (`isa.py`). A real chip runs only a few
+   *native gates* (IBM Heron: `cz`, `rz`, `sx`, `x`). Two-qubit gates work only
+   between physically wired qubits (the *coupling map*). The transpiler
+   rewrites the circuit to respect both. The result is an *ISA circuit*, and
+   IBM rejects anything else. Run `examples/bell.py` to see a CNOT become
+   `rz`/`sx` gates around a `cz`.
+3. **Submit** (`client.py`). These are plain HTTP calls to IBM's REST API.
+   They swap an API key for a token, read the chip's configuration, `POST
+   /v1/jobs` with the `sampler` program, poll, and fetch results. We avoid
+   `qiskit-ibm-runtime` here on purpose, because the future C++ plugin must
+   make the same calls.
+4. **Decode** (`results.py`). IBM returns one hex string per shot. Qiskit and
+   IBM are little-endian: bit 0 is the **right-most** character. CUDA-Q puts
+   qubit 0 **left-most**. So `x(q[0])` on 3 qubits is `"001"` in Qiskit and
+   `"100"` in CUDA-Q. We flip each register to match CUDA-Q.
+
+## Credentials
+
+You need an [IBM Quantum Platform](https://quantum.cloud.ibm.com) account. The
+free Open Plan gives about 10 minutes of QPU time per rolling 28 days.
+
+Set two environment variables. Never commit them or paste them anywhere public.
+
+```bash
+export IBM_QUANTUM_API_KEY="..."   # IBM Cloud API key
+export IBM_QUANTUM_CRN="crn:v1:..." # your instance's CRN (instance page)
+python examples/bell.py ibm_fez
+```
+
+## Tests
+
+```bash
+pip install -e ".[test]"
+pytest
+```
+
+The tests never touch IBM. A fake REST server (`responses`) stands in for
+IBM, and a fake chip (`FakeFez`) stands in for the hardware.
+
+## Known limits (phase 1)
+
+- Only the Sampler (counts). No Estimator (expectation values) yet.
+- The transpiler ignores qubit error rates, so it may pick noisy qubits.
+- There is no error mitigation, sessions or batching.
+- The REST result layout follows IBM's docs and has not yet been checked
+  against a real job.
+
+## Roadmap
+
+1. **Python prototype** (this). The go/no-go point is one successful real-QPU run.
+2. **C++ plugin.** This uses CUDA-Q 0.16's [backend plugin
+   framework](https://nvidia.github.io/cuda-quantum/0.16.0/using/extending/backend.html):
+   a `ServerHelper` subclass, a `targets/ibm.yml` file and CMake, installed with
+   pip. Then `cudaq.set_target("ibm")` works like any other provider. The open
+   question is how to produce ISA circuits in C++ without Qiskit.
+3. **Docs, a blog post**, and a conversation with the CUDA-Q maintainers.
+
+## License
+
+Apache-2.0, the same license as CUDA-Q and Qiskit.
