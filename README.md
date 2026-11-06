@@ -105,7 +105,8 @@ IBM, and a fake chip (`FakeFez`) stands in for the hardware.
    framework](https://nvidia.github.io/cuda-quantum/0.16.0/using/extending/backend.html):
    a `ServerHelper` subclass, a `targets/ibm.yml` file and CMake, installed with
    pip. Then `cudaq.set_target("ibm")` works like any other provider. The open
-   question is how to produce ISA circuits in C++ without Qiskit.
+   question is how to produce ISA circuits in C++ without Qiskit; see
+   [docs/phase3-design.md](docs/phase3-design.md).
 3. **Docs, a blog post**, and a conversation with the CUDA-Q maintainers.
 
 ## License
