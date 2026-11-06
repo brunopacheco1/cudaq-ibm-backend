@@ -64,9 +64,10 @@ no `nvq++`** (only `cpr` headers). So the plugin must be compiled inside a CUDA-
 (`-DCUDAQ_EXTERNAL_PROJECTS=ibm`, the documented route) and then the resulting `.so` is
 packaged as a wheel. **[U]** Whether a plugin built against a source tree loads cleanly into a
 pip-installed `cudaq` depends on ABI match (same compiler, same `nlohmann::json`, same
-flags); M0 checks this. On Apple Silicon the runtime pieces exist in the wheel, but a CUDA-Q
-source build on macOS for plugin compilation is **[U]**; the pragmatic path is to build in
-NVIDIA's dev container (Linux) and run tests there, and use the Mac for Python-side work.
+flags); M0 checks this. Update 2026-11-06: a native macOS (Apple Silicon, CPU-only) source build **is** documented
+in the 0.16.0 tag **[V]** `Building.md` "Building on macOS", `Dev_Setup.md` "Working on macOS"
+(`./scripts/build_cudaq.sh -p`, which first builds LLVM from source). The dev container is
+not available on macOS. Chosen path for M0: native Mac build.
 
 ## 3. The ISA problem: options
 
@@ -197,7 +198,7 @@ the form that already succeeded on hardware.
 1. **Physical-id compaction** (section 3) **[V]**. Mitigated by relabelling; fixed only upstream. If a run ever shows non-contiguous placement, the circuit would silently use wrong qubits; add a mock-side check that every 2-qubit gate is on an edge of the *real* coupling map (`is_isa_circuit` does exactly this).
 2. **Routing quality** **[V]** 23 swaps for GHZ-20. Fine for learning; a noise-aware layout (Option B's first piece) is the obvious follow-up.
 3. **Plugin ABI vs pip wheel** **[U]**. M0 tests it; fallback is "use the dev-container `cudaq`", which is what the docs assume.
-4. **macOS** **[U]**. Wheel ships the REST runtime for arm64 but there is no documented macOS plugin build; plan on Linux containers.
+4. **macOS** **[V]** native dev builds are documented (see section 2); first build is long because LLVM is built from source.
 5. **Pass names are an internal API** **[U]**; the docs even say "Contact the CUDA-Q team for help setting this up" (`backend.rst:172`). Pin `cudaq-version`.
 6. **Gate identities** **[U]** until unit-tested; sign conventions of `rx`/`ry`/`phased_rx` vs Qiskit must be checked numerically.
 7. **IBM API drift**: service renamed to "IBM Quantum Compute Service", legacy names supported until 2026-11-21 **[V]** QRMI README line 20; `version: 2` field is in our working payload but not shown in the docs **[V]**.
