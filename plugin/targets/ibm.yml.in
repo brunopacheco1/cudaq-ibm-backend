@@ -17,8 +17,12 @@ config:
   gen-target-backend: true
   preprocessor-defines: ["-D CUDAQ_QUANTUM_DEVICE"]
   link-libs: ["-lcudaq-rest-qpu"]
-  # M1 placeholder. M2 switches this to qasm2 and converts to IBM's ISA.
-  codegen-emission: qir-base
+  # CUDA-Q decomposes every kernel into a small textbook gate set and prints
+  # it as OpenQASM 2. IBMServerHelper then rewrites those gates into IBM's
+  # native {rz, sx, x, cz} (see Qasm2ToIsa.h). Same pattern as infleqtion.yml.
+  jit-high-level-pipeline: "expand-measurements"
+  jit-mid-level-pipeline: "decomposition{basis=h,rx,ry,rz,x,z,x(1)},quake-to-cc-prep,func.func(memtoreg{quantum=0})"
+  codegen-emission: qasm2
   library-mode: false
 
 target-arguments:

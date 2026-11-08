@@ -10,16 +10,18 @@
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
 
-// IBM Quantum backend for CUDA-Q (milestone M1: auth, submit, poll, results).
+// IBM Quantum backend for CUDA-Q (M1: auth, submit, poll, results;
+// M2: OpenQASM 2 -> IBM ISA OpenQASM 3, see Qasm2ToIsa.h).
 // The spec for this file is docs/m1-spec.md. Section numbers (§) refer to it.
 //
-// Out of scope for M1: turning the circuit into IBM's ISA (M2/M3). Until
-// then real IBM rejects the circuit; test against the fake server instead.
+// Not yet: qubit routing (M3). Circuits must use qubits that are wired
+// together on the chip (for M2: qubits 0 and 1).
 
+#include "Qasm2ToIsa.h"
 #include "common/RestClient.h"
 #include "common/ServerHelper.h"
-#include "cudaq/runtime/logger/logger.h"
 #include "nlohmann/json.hpp"
+#include "cudaq/runtime/logger/logger.h"
 
 #include <curl/curl.h>
 
@@ -199,11 +201,15 @@ public:
     std::vector<ServerMessage> jobs;
     jobs.reserve(circuitCodes.size());
     for (const auto &circuitCode : circuitCodes) {
+      // M2: CUDA-Q gives us OpenQASM 2 in textbook gates; IBM only accepts
+      // OpenQASM 3 in its native gates (an "ISA circuit").
+      const auto isa = ibm::qasm2ToIsaQasm3(circuitCode.code);
+      CUDAQ_INFO("IBM: ISA circuit for {}:\n{}", circuitCode.name, isa.qasm3);
       ServerMessage job;
       job["program_id"] = "sampler";
       job["backend"] = backend;
       job["params"]["pubs"] = nlohmann::json::array(
-          {nlohmann::json::array({circuitCode.code, nullptr, shots})});
+          {nlohmann::json::array({isa.qasm3, nullptr, shots})});
       job["params"]["version"] = 2;
       jobs.push_back(std::move(job));
     }
@@ -252,6 +258,7 @@ public:
     const bool verifyTls = true; // RestClient's default is false (§4)
     ServerMessage results = client.get(baseUrl + "/jobs/" + jobId + "/results",
                                        "", headers, verifyTls);
+    CUDAQ_INFO("IBM: results for job {}: {}", jobId, results.dump());
 
     const auto &data = results.at("results").at(0).at("data");
     if (data.size() != 1)
