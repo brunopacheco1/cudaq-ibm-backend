@@ -15,3 +15,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[test]"
       - run: pytest -q
+  isa-rewrite:
+    # C++ unit tests for plugin/Qasm2ToIsa.h. Needs no CUDA-Q: the rewrite
+    # is a pure function, proven against textbook gate matrices.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_qasm2_to_isa.cpp -o test_isa
+      - run: ./test_isa
