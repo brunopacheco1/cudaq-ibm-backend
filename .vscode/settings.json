@@ -1,0 +1,9 @@
+{
+	"clangd.path": "/usr/bin/clangd",
+    "clangd.arguments": ["--compile-commands-dir=/work/cuda-quantum/build"],
+	"[cpp]": {
+		"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+		"editor.formatOnSave": true
+    },
+    "cmake.sourceDirectory": "/src/cudaq-ibm-backend/plugin"
+}
