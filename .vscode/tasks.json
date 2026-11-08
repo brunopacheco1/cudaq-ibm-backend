@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "options": { "cwd": "/work/cuda-quantum" },
+  "tasks": [
+    {
+      "label": "ibm: configure",
+      "type": "shell",
+      "command": "cmake -B build -DCUDAQ_EXTERNAL_PROJECTS=ibm -DCUDAQ_EXTERNAL_IBM_SOURCE_DIR=/src/cudaq-ibm-backend/plugin",
+      "problemMatcher": []
+    },
+    {
+      "label": "ibm: build",
+      "type": "shell",
+      "command": "ninja -C build -j 2 cudaq-example-serverhelper-ibm",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": {
+        "base": "$gcc",
+        "fileLocation": ["autoDetect", "/work/cuda-quantum/build"]
+      }
+    }
+  ]
+}

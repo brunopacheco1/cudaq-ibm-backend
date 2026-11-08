@@ -1,0 +1,39 @@
+# ============================================================================ #
+# Copyright (c) 2022 - 2026 NVIDIA Corporation & Affiliates.                   #
+# All rights reserved.                                                         #
+#                                                                              #
+# Modifications copyright (c) 2026 Bruno Pacheco.                              #
+# Adapted from the CUDA-Q mock_rest plugin example for IBM Quantum.            #
+#                                                                              #
+# This source code and the accompanying materials are made available under     #
+# the terms of the Apache License 2.0 which accompanies this distribution.     #
+# ============================================================================ #
+
+name: ibm
+description: "Run CUDA-Q kernels on IBM Quantum hardware."
+cudaq-version: "@CUDA_QUANTUM_VERSION@"
+config:
+  platform-qpu: remote_rest
+  gen-target-backend: true
+  preprocessor-defines: ["-D CUDAQ_QUANTUM_DEVICE"]
+  link-libs: ["-lcudaq-rest-qpu"]
+  # M1 placeholder. M2 switches this to qasm2 and converts to IBM's ISA.
+  codegen-emission: qir-base
+  library-mode: false
+
+target-arguments:
+  - key: backend
+    required: false
+    type: string
+    platform-arg: backend
+    help-string: "IBM backend name, e.g. ibm_fez (default)."
+  - key: url
+    required: false
+    type: string
+    platform-arg: url
+    help-string: "IBM Quantum API base URL (default https://quantum.cloud.ibm.com/api)."
+  - key: iam_url
+    required: false
+    type: string
+    platform-arg: iam_url
+    help-string: "IBM Cloud IAM token URL (default https://iam.cloud.ibm.com/identity/token). Override only for testing."
