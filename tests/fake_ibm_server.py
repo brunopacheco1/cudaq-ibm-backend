@@ -9,6 +9,7 @@
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
 
+import re
 import sys
 import uuid
 from typing import Any
@@ -23,7 +24,23 @@ POLLS_BEFORE_DONE = 2
 # Two qubits, three shots. IBM is little-endian: "0x1" means qubit 0 = 1.
 SAMPLES = ["0x1", "0x1", "0x2"]
 
+# IBM accepts only "ISA" circuits: native gates on physical qubits ($k).
+NATIVE_LINE = re.compile(
+    r"^(rz\([-+0-9.eE]+\) \$\d+|sx \$\d+|x \$\d+|cz \$\d+, \$\d+"
+    r"|c\[\d+\] = measure \$\d+);$")
+HEADER_LINES = ("OPENQASM 3.0;", 'include "stdgates.inc";')
+
 app = FastAPI()
+
+
+def check_isa(qasm3: str) -> None:
+    """Reject anything a real IBM chip would reject (gate set only)."""
+    for line in qasm3.strip().splitlines():
+        line = line.strip()
+        if not line or line in HEADER_LINES or line.startswith("bit["):
+            continue
+        if not NATIVE_LINE.match(line):
+            raise HTTPException(400, f"not an ISA instruction: {line!r}")
 jobs: dict[str, dict[str, Any]] = {}
 
 
@@ -57,6 +74,8 @@ async def submit_job(request: Request):
     pubs = body.get("params", {}).get("pubs")
     if not isinstance(pubs, list) or not pubs:
         raise HTTPException(400, "params.pubs must be a non-empty list")
+    for pub in pubs:
+        check_isa(pub[0])
     job_id = str(uuid.uuid4())
     jobs[job_id] = {"polls": 0, "body": body}
     print(f"[fake-ibm] job {job_id}: backend={body.get('backend')} "
