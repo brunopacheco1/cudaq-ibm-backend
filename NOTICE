@@ -1,0 +1,14 @@
+cudaq-ibm-backend
+Copyright (c) 2026 Bruno Pacheco
+ 
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+ 
+This product includes software derived from CUDA-Q
+(https://github.com/NVIDIA/cuda-quantum),
+Copyright (c) 2022 - 2026 NVIDIA Corporation & Affiliates,
+licensed under the Apache License, Version 2.0.
+Files under plugin/ are adapted from the CUDA-Q mock_rest plugin example
+and IonQServerHelper; tests/fake_ibm_server.py is adapted from CUDA-Q's
+echo mock QPU. Each such file keeps NVIDIA's copyright header and states
+that it was modified.
+ 
