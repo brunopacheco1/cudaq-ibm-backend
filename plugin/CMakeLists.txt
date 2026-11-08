@@ -2,6 +2,9 @@
 # Copyright (c) 2022 - 2026 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
+# Modifications copyright (c) 2026 Bruno Pacheco.                              #
+# Adapted from the CUDA-Q mock_rest plugin example for IBM Quantum.            #
+#                                                                              #
 # This source code and the accompanying materials are made available under     #
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
@@ -41,7 +44,7 @@ set_target_properties(cudaq-example-serverhelper-ibm
 target_include_directories(cudaq-example-serverhelper-ibm
   PRIVATE ${PROJECT_SOURCE_DIR}/runtime)
 target_link_libraries(cudaq-example-serverhelper-ibm
-  PRIVATE cudaq-common cudaq-logger)
+  PRIVATE cudaq-common cudaq-logger CURL::libcurl)
 
 if(NOT PYTHON_EXECUTABLE AND Python3_EXECUTABLE)
   set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})

@@ -2,62 +2,223 @@
  * Copyright (c) 2022 - 2026 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
+ * Modifications copyright (c) 2026 Bruno Pacheco.                             *
+ * Adapted from the CUDA-Q mock_rest plugin example and IonQServerHelper       *
+ * for IBM Quantum.                                                            *
+ *                                                                             *
  * This source code and the accompanying materials are made available under    *
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
 
+// IBM Quantum backend for CUDA-Q (milestone M1: auth, submit, poll, results).
+// The spec for this file is docs/m1-spec.md. Section numbers (§) refer to it.
+//
+// Out of scope for M1: turning the circuit into IBM's ISA (M2/M3). Until
+// then real IBM rejects the circuit; test against the fake server instead.
+
+#include "common/RestClient.h"
 #include "common/ServerHelper.h"
+#include "cudaq/runtime/logger/logger.h"
 #include "nlohmann/json.hpp"
+
+#include <curl/curl.h>
+
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <cstdlib>
+#include <stdexcept>
 #include <string>
 
 namespace cudaq {
 
 class IBMServerHelper : public ServerHelper {
-  std::string url = "http://localhost:62454";
-  std::string value = "0";
+  // ---- Defaults (§2) -------------------------------------------------------
+  static constexpr const char *DEFAULT_URL =
+      "https://quantum.cloud.ibm.com/api";
+  static constexpr const char *DEFAULT_IAM_URL =
+      "https://iam.cloud.ibm.com/identity/token";
+  static constexpr const char *DEFAULT_BACKEND = "ibm_fez";
+  static constexpr int REFRESH_MARGIN_SECONDS = 60;
+
+  // ---- State ---------------------------------------------------------------
+  // Secrets live in private members, never in backendConfig, because
+  // backendConfig is copied around by CUDA-Q and may end up in logs.
+  std::string apiKey;
+  std::string crn;
+  std::string baseUrl; // e.g. https://quantum.cloud.ibm.com/api/v1
+  std::string iamUrl;
+  std::string backend;
+
+  // Cached IAM token and when it expires.
+  std::string token;
+  std::chrono::system_clock::time_point tokenExpires{};
+
+  // Used for the extra GET /jobs/{id}/results in processResults.
+  RestClient client;
+
+  // ---- Small helpers -------------------------------------------------------
+  static std::string valueOr(const BackendConfig &config,
+                             const std::string &key,
+                             const std::string &fallback) {
+    auto it = config.find(key);
+    return (it != config.end() && !it->second.empty()) ? it->second : fallback;
+  }
+
+  static std::string requiredEnv(const char *name) {
+    const char *value = std::getenv(name);
+    if (value == nullptr || *value == '\0')
+      throw std::runtime_error(
+          std::string(name) +
+          " is not set. Export it before using the 'ibm' target.");
+    return value;
+  }
+
+  static std::string toUpper(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return std::toupper(c); });
+    return s;
+  }
+
+  // libcurl calls this for each chunk of the response body.
+  static size_t appendToString(char *data, size_t size, size_t count,
+                               void *userData) {
+    static_cast<std::string *>(userData)->append(data, size * count);
+    return size * count;
+  }
+
+  // ---- IAM login (§2.1) ----------------------------------------------------
+  // RestClient::post can only send JSON and logs the body (which would
+  // contain the API key), so this one request uses libcurl directly (§4).
+  std::string requestNewToken() {
+    CURL *curl = curl_easy_init();
+    if (!curl)
+      throw std::runtime_error("IBM IAM: could not initialise libcurl.");
+
+    char *escapedKey =
+        curl_easy_escape(curl, apiKey.c_str(), static_cast<int>(apiKey.size()));
+    std::string form =
+        "grant_type=urn%3Aibm%3Aparams%3Aoauth%3Agrant-type%3Aapikey&apikey=";
+    form += escapedKey ? escapedKey : "";
+    curl_free(escapedKey);
+
+    curl_slist *headers = nullptr;
+    headers = curl_slist_append(headers, "Accept: application/json");
+    headers = curl_slist_append(
+        headers, "Content-Type: application/x-www-form-urlencoded");
+
+    std::string response;
+    curl_easy_setopt(curl, CURLOPT_URL, iamUrl.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, form.c_str());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, appendToString);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    // libcurl verifies TLS certificates by default. Honour the same CA
+    // bundle variable CUDA-Q's RestClient uses.
+    if (const char *caBundle = std::getenv("CURL_CA_BUNDLE"))
+      curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle);
+
+    const CURLcode rc = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (rc != CURLE_OK)
+      throw std::runtime_error(std::string("IBM IAM: request failed: ") +
+                               curl_easy_strerror(rc));
+    if (status < 200 || status >= 300)
+      // IAM error bodies do not echo the API key, so they are safe to show.
+      throw std::runtime_error("IBM IAM: HTTP " + std::to_string(status) +
+                               ": " + response);
+
+    const auto body = nlohmann::json::parse(response);
+    const auto now = std::chrono::system_clock::now();
+    const int expiresIn = body.value("expires_in", 3600);
+    tokenExpires = now + std::chrono::seconds(expiresIn);
+    return body.at("access_token").get<std::string>();
+  }
+
+  // Return a cached token, refreshing it shortly before it expires.
+  const std::string &accessToken() {
+    const auto now = std::chrono::system_clock::now();
+    if (token.empty() ||
+        now >= tokenExpires - std::chrono::seconds(REFRESH_MARGIN_SECONDS)) {
+      CUDAQ_INFO("IBM: requesting a new IAM access token.");
+      token = requestNewToken();
+    }
+    return token;
+  }
+
+  // ---- Result decoding (§2.5) ----------------------------------------------
+  // "0x1" with 2 bits -> "01" (IBM, bit 0 right-most) -> "10" (CUDA-Q,
+  // qubit 0 left-most).
+  static std::string hexToCudaqBits(const std::string &hex,
+                                    std::size_t numBits) {
+    unsigned long long value = std::stoull(hex, nullptr, 16);
+    std::string bits(numBits, '0');
+    for (std::size_t i = 0; i < numBits; ++i)
+      bits[i] = ((value >> i) & 1ULL) ? '1' : '0'; // bit i -> position i
+    return bits;
+  }
 
 public:
   const std::string name() const override { return "ibm"; }
 
+  // §3 initialize. Called on set_target and again inside future::get().
   void initialize(BackendConfig config) override {
-    backendConfig = std::move(config);
-    parseConfigForCommonParams(backendConfig);
-    if (auto iter = backendConfig.find("url"); iter != backendConfig.end())
-      url = iter->second;
-    if (auto iter = backendConfig.find("shots");
-        iter != backendConfig.end() && !iter->second.empty())
-      setShots(std::stoul(iter->second));
-    if (auto iter = backendConfig.find("value");
-        iter != backendConfig.end() && !iter->second.empty())
-      value = iter->second;
+    CUDAQ_INFO("Initializing IBM backend.");
+    backendConfig = config; // keep everything CUDA-Q passes along
+
+    backend = valueOr(config, "backend", DEFAULT_BACKEND);
+    baseUrl = valueOr(config, "url", DEFAULT_URL) + "/v1";
+    iamUrl = valueOr(config, "iam_url", DEFAULT_IAM_URL);
+    apiKey = requiredEnv("IBM_QUANTUM_API_KEY");
+    crn = requiredEnv("IBM_QUANTUM_CRN");
+
+    if (auto it = config.find("shots");
+        it != config.end() && !it->second.empty())
+      setShots(std::stoul(it->second));
+
+    // Reads output_names.<jobId> etc., used in processResults.
+    parseConfigForCommonParams(config);
   }
 
-  RestHeaders getHeaders() override { return {}; }
+  // §2.2. Called once per poll loop (see the token-expiry limit).
+  RestHeaders getHeaders() override {
+    return {{"Authorization", "Bearer " + accessToken()},
+            {"Service-CRN", crn},
+            {"Accept", "application/json"},
+            {"Content-Type", "application/json"}};
+  }
 
+  // §2.3. One Sampler job per kernel, one PUB per job.
   ServerJobPayload
   createJob(std::vector<KernelExecution> &circuitCodes) override {
-    std::vector<ServerMessage> tasks;
-    tasks.reserve(circuitCodes.size());
+    std::vector<ServerMessage> jobs;
+    jobs.reserve(circuitCodes.size());
     for (const auto &circuitCode : circuitCodes) {
-      ServerMessage task;
-      task["kernel"] = circuitCode.name;
-      task["code"] = circuitCode.code;
-      task["shots"] = shots;
-      task["value"] = value;
-      tasks.push_back(std::move(task));
+      ServerMessage job;
+      job["program_id"] = "sampler";
+      job["backend"] = backend;
+      job["params"]["pubs"] = nlohmann::json::array(
+          {nlohmann::json::array({circuitCode.code, nullptr, shots})});
+      job["params"]["version"] = 2;
+      jobs.push_back(std::move(job));
     }
-
-    return std::make_tuple(url + "/jobs", RestHeaders(), std::move(tasks));
+    return std::make_tuple(baseUrl + "/jobs", getHeaders(), std::move(jobs));
   }
 
   std::string extractJobId(ServerMessage &postResponse) override {
-    if (postResponse.is_array() && !postResponse.empty())
-      return postResponse.front().value("id", "ibm-job");
-    return postResponse.value("id", "ibm-job");
+    if (!postResponse.contains("id"))
+      throw std::runtime_error("IBM: job submission response has no 'id': " +
+                               postResponse.dump());
+    return postResponse.at("id").get<std::string>();
   }
 
   std::string constructGetJobPath(std::string &jobId) override {
-    return url + "/jobs/" + jobId;
+    return baseUrl + "/jobs/" + jobId;
   }
 
   std::string constructGetJobPath(ServerMessage &postResponse) override {
@@ -65,16 +226,65 @@ public:
     return constructGetJobPath(jobId);
   }
 
+  // §2.4. Throw on failure, otherwise CUDA-Q would poll forever.
   bool jobIsDone(ServerMessage &getJobResponse) override {
-    const auto status = getJobResponse.value("status", "done");
-    return status == "done" || status == "completed" || status == "succeeded";
+    const std::string status =
+        toUpper(getJobResponse.at("state").at("status").get<std::string>());
+    if (status == "COMPLETED")
+      return true;
+    if (status == "FAILED" || status == "CANCELLED") {
+      std::string reason = getJobResponse["state"].value("reason", "");
+      throw std::runtime_error("IBM job ended with status " + status +
+                               (reason.empty() ? "" : ": " + reason));
+    }
+    return false; // QUEUED, RUNNING, ...
   }
 
-  sample_result processResults(ServerMessage &postJobResponse,
-                               std::string &jobId) override {
-    CountsDictionary counts;
-    counts[postJobResponse.value("value", value)] = shots;
+  std::chrono::microseconds
+  nextResultPollingInterval(ServerMessage &) override {
+    return std::chrono::seconds(5);
+  }
 
+  // §2.5. One extra GET for the samples (same pattern as IonQ).
+  sample_result processResults(ServerMessage &getJobResponse,
+                               std::string &jobId) override {
+    auto headers = getHeaders();
+    const bool verifyTls = true; // RestClient's default is false (§4)
+    ServerMessage results = client.get(baseUrl + "/jobs/" + jobId + "/results",
+                                       "", headers, verifyTls);
+
+    const auto &data = results.at("results").at(0).at("data");
+    if (data.size() != 1)
+      throw std::runtime_error(
+          "IBM: only circuits with one classical register are supported "
+          "in M1; got " +
+          std::to_string(data.size()));
+    const auto &reg = data.begin().value();
+    const auto &samples = reg.at("samples");
+
+    // Number of bits: prefer what CUDA-Q told us it measured; fall back on
+    // IBM's num_bits (unverified field), then on the widest sample.
+    std::size_t numBits = 0;
+    if (auto it = outputNames.find(jobId); it != outputNames.end())
+      numBits = it->second.size();
+    if (numBits == 0)
+      numBits = reg.value("num_bits", 0);
+    if (numBits == 0)
+      for (const auto &s : samples) {
+        auto v = std::stoull(s.get<std::string>(), nullptr, 16);
+        std::size_t width = 0;
+        while (width < 64 && (v >> width) != 0)
+          ++width;
+        numBits = std::max(numBits, width);
+      }
+    if (numBits == 0)
+      numBits = 1;
+    if (numBits > 64)
+      throw std::runtime_error("IBM: more than 64 measured bits not supported");
+
+    CountsDictionary counts;
+    for (const auto &s : samples)
+      ++counts[hexToCudaqBits(s.get<std::string>(), numBits)];
     return sample_result(ExecutionResult(counts));
   }
 };
