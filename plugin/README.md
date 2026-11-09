@@ -10,7 +10,7 @@ How it works: [../docs/architecture.md](../docs/architecture.md).
 
 | File | Role |
 |---|---|
-| `IBMServerHelper.cpp` | The `cudaq::ServerHelper` for IBM: IAM login, job body, polling, result decoding. Spec: [../docs/specs/m1-spec.md](../docs/specs/m1-spec.md). |
+| `IBMServerHelper.cpp` | The `cudaq::ServerHelper` for IBM: IAM login, job body, polling, result decoding. Details: [../docs/architecture.md](../docs/architecture.md) §2-§4. |
 | `Qasm2ToIsa.h` | Rewrites CUDA-Q's OpenQASM 2 into IBM's native gates, as OpenQASM 3. Header-only. |
 | `targets/ibm.yml.in` | The target: compiler pipeline and target arguments. |
 | `CMakeLists.txt` | Builds the plugin as a CUDA-Q external project. |
