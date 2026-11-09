@@ -7,10 +7,11 @@ hardware providers, but **IBM is not one of them**. This project adds that
 missing link. It is also a learning project, so the code explains the
 quantum ideas behind each step.
 
-> **Status: phase 1, a Python prototype.** First real-hardware run on
-> 2026-11-05: a Bell pair on `ibm_fez` (1000 shots) returned
-> `{'00': 507, '11': 444, '01': 37, '10': 12}`, so 95% of results were
-> correlated as expected and the other 5% is hardware noise. Expect breaking changes.
+> **Status.** Phase 1, the Python prototype, ran a Bell pair on `ibm_fez` on
+> 2026-11-05: 95% of 1000 shots were correlated, as expected. Phase 2, the
+> C++ CUDA-Q plugin, is in progress. M1 (IBM login, job submit, poll and
+> results) works against a fake IBM server. M2 (rewriting circuits into IBM's
+> native gates) handles `h` and `cx`. Expect breaking changes.
 
 ## Quick start
 
@@ -63,6 +64,13 @@ CUDA-Q style counts ◄── hex samples ◄── IBM Sampler job (REST, clien
    qubit 0 **left-most**. So `x(q[0])` on 3 qubits is `"001"` in Qiskit and
    `"100"` in CUDA-Q. We flip each register to match CUDA-Q.
 
+## Develop the C++ plugin
+
+The C++ plugin in `plugin/` is built inside a CUDA-Q 0.16 source build, in NVIDIA's
+Linux dev container. Step-by-step setup, daily use, build and tests:
+[docs/development.md](docs/development.md). How the plugin works:
+[docs/architecture.md](docs/architecture.md).
+
 ## Credentials
 
 You need an [IBM Quantum Platform](https://quantum.cloud.ibm.com) account. The
@@ -100,13 +108,14 @@ IBM, and a fake chip (`FakeFez`) stands in for the hardware.
 
 ## Roadmap
 
-1. **Python prototype** (this). The go/no-go point is one successful real-QPU run.
+1. **Python prototype** (done). The go/no-go point was one successful real-QPU run.
 2. **C++ plugin.** This uses CUDA-Q 0.16's [backend plugin
    framework](https://nvidia.github.io/cuda-quantum/0.16.0/using/extending/backend.html):
    a `ServerHelper` subclass, a `targets/ibm.yml` file and CMake, installed with
-   pip. Then `cudaq.set_target("ibm")` works like any other provider. The open
-   question is how to produce ISA circuits in C++ without Qiskit; see
-   [docs/phase3-design.md](docs/phase3-design.md).
+   pip. Then `cudaq.set_target("ibm")` works like any other provider. The
+   milestones (M0-M5) and their status are in
+   [docs/roadmap.md](docs/roadmap.md). To build it, see
+   [docs/development.md](docs/development.md).
 3. **Docs, a blog post**, and a conversation with the CUDA-Q maintainers.
 
 ## License
