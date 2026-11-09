@@ -14,14 +14,15 @@ rough, for part-time work. Each milestone is shippable.
 | M0 | Dev environment: CUDA-Q 0.16.0 source build in NVIDIA's dev container; build and run the `mock_rest` reference plugin | 1-2 days | `mock_rest` sample runs end to end | **Done** 2026-11-08 (Podman, [decision 0002](decisions/0002-build-in-linux-dev-container.md)). The ABI check moved to M4. |
 | M1 | `ibm` plugin: YAML (no mapping yet), IAM auth, job POST/poll/results, hex decoding; fake IBM server | 2-3 days | Bell pair end to end against the fake server | **Done** 2026-11-08, PR #1. Result `{ 01:1 10:2 }`. |
 | M2 | `qasm2ToIsaQasm3` gate rewrite with unit tests; first real Bell pair on `ibm_fez` qubits 0-1 | 3-5 days | Hardware counts match the Python prototype | **Done** 2026-11-09. Rules h, cx (PR #2) and z, y, rx, ry, u3 (derived by Bruno, PR #4). Bell on `ibm_fez`: `{ 00:495 11:449 01:39 10:17 }`, 94.4% correlated (prototype: 95.1%). |
-| M3 | Routing: fetch configuration, prune/relabel, topology file, `qubit-mapping` in YAML, `reorderIdx`; fake server checks 2-qubit gates against the real coupling map | 3-5 days | 5-qubit GHZ on hardware; 20-qubit GHZ accepted by the fake server | **Spec drafted** 2026-11-09 ([m3-spec.md](m3-spec.md)); waiting for Bruno's choices. |
+| M3 | Routing: fetch configuration and properties, prune, noise-aware numbering, device file, `qubit-mapping` in YAML, label -> IBM qubit assignment; fake server checks 2-qubit gates against the real coupling map | 3-5 days | 5-qubit GHZ on hardware; 20-qubit GHZ accepted by the fake server | **Code in review** 2026-11-09 ([decision 0009](decisions/0009-route-with-cudaq-then-assign-qubits.md)). Unit tests and a pip-CUDA-Q run of the pipeline pass; plugin build, fake-server run and GHZ-5 on hardware are next. |
 | M4 | Packaging: wheels (Linux x86_64, aarch64), ABI check against pip `cudaq`, `--install-nvqpp`, README, CI (build in dev container, run fake-server tests) | 2-3 days | `pip install` then `cudaq.set_target("ibm")` works | Not started. CI already runs the Python tests and the ISA unit test. |
 | M5 | Optional: `transport=qrmi` using the bundled `libqrmi` ([decision 0007](decisions/0007-qrmi-later-not-in-v1.md)); upstream PRs ([upstream.md](upstream.md): token refresh in `Future.cpp`, `RestClient` TLS default, native IBM basis patterns, `mapping_v2p` export, fake IBM server) | 1-2 weeks | PRs opened with DCO sign-off | Not started |
 
 ## 2. Next steps
 
-1. Bruno: choices D1-D3 in [m3-spec.md](m3-spec.md) §3.
-2. Then M3 code per the spec's work split.
+1. Bruno: rebuild the plugin in the container and run `tests/run_fake_ibm.py` (now 4 checks, incl. GHZ-20).
+2. Bruno: GHZ-5 on `ibm_fez`; then fold m3-spec.md into architecture.md and close M3.
+3. Open the upstream issue for the qubit packing (draft from Claude, [upstream.md](upstream.md) #5).
 
 ## 3. Open risks
 
@@ -29,7 +30,7 @@ Evidence is in the linked decision records.
 
 | Risk | Status | Plan |
 |---|---|---|
-| Physical qubit ids compacted by CUDA-Q | **[V]** reproduced: a routed qubit 9 arrives as 5 ([m3-spec.md](m3-spec.md) §2.4) | Prefix layout + guard (M3, D1); upstream fix ([upstream.md](upstream.md) #5) |
+| Physical qubit ids compacted by CUDA-Q | **[V]** reproduced: a routed qubit 9 arrives as 5 ([m3-spec.md](m3-spec.md) §2.4); routing borrows qubits often (§2.6) | Assignment search in `Layout.h` ([decision 0009](decisions/0009-route-with-cudaq-then-assign-qubits.md)); upstream fix ([upstream.md](upstream.md) #5) |
 | Routing quality (23 swaps for GHZ-20) | **[V]** | Noise-aware layout later, if it matters |
 | Plugin ABI vs pip `cudaq` | **[U]** untested | Check in M4 |
 | Dev container image pinned by a digest NVIDIA may delete | **[V]** tags already gone | Build our own image if the digest disappears |

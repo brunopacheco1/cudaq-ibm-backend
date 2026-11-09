@@ -11,12 +11,11 @@
  ******************************************************************************/
 
 // IBM Quantum backend for CUDA-Q (M1: auth, submit, poll, results;
-// M2: OpenQASM 2 -> IBM ISA OpenQASM 3, see Qasm2ToIsa.h).
+// M2: OpenQASM 2 -> IBM ISA OpenQASM 3, see Qasm2ToIsa.h;
+// M3: routing on the chip's wiring, see Layout.h and decision 0009).
 // How this file works: docs/architecture.md. Section numbers (§) refer to it.
-//
-// Not yet: qubit routing (M3). Circuits must use qubits that are wired
-// together on the chip (for M2: qubits 0 and 1).
 
+#include "Layout.h"
 #include "Qasm2ToIsa.h"
 #include "common/RestClient.h"
 #include "common/ServerHelper.h"
@@ -29,11 +28,16 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <unistd.h> // close (mkstemp is in <cstdlib>)
 
 namespace cudaq {
 
@@ -61,6 +65,13 @@ class IBMServerHelper : public ServerHelper {
 
   // CA bundle used to verify IBM's TLS certificates (§2.3).
   std::string caBundle;
+
+  // M3 routing. The chip numbering CUDA-Q routed on (device label -> IBM
+  // qubit), set in getPipelineSubstitutions and used in createJob. Both run
+  // in the same compile-and-submit call, so they see the same layout.
+  ibm::Layout layout;
+  // Device file we wrote (empty when the user gave mapping_file).
+  std::string ownDeviceFile;
 
   // ---- Small helpers -------------------------------------------------------
   static std::string valueOr(const BackendConfig &config,
@@ -188,8 +199,135 @@ class IBMServerHelper : public ServerHelper {
     return bits;
   }
 
+  // ---- Chip data for routing (M3) -----------------------------------------
+  // GET /backends/{name}/configuration (wiring) and /properties (errors).
+  // One "value" may be a number or a boolean.
+  static double numberOf(const nlohmann::json &v) {
+    if (v.is_boolean())
+      return v.get<bool>() ? 1.0 : 0.0;
+    return v.get<double>();
+  }
+
+  ibm::Chip fetchChip() {
+    const bool verifyTls = true;
+    const std::string base = baseUrl + "/backends/" + backend;
+    RestClient client;
+    auto headers = getHeaders();
+    const ServerMessage config =
+        client.get(base + "/configuration", "", headers, verifyTls);
+
+    ibm::Chip chip;
+    chip.qubits.assign(config.at("n_qubits").get<int>(), {});
+    std::map<std::pair<int, int>, std::size_t> linkIndex;
+    for (const auto &pair : config.at("coupling_map")) {
+      const int a = pair.at(0).get<int>(), b = pair.at(1).get<int>();
+      linkIndex[{a, b}] = chip.links.size();
+      chip.links.push_back({a, b, 0.0, true});
+    }
+
+    // Errors are optional for correctness: without them every qubit scores
+    // the same and the root is the lowest id. So a failure here only warns.
+    try {
+      const ServerMessage props =
+          client.get(base + "/properties", "", headers, verifyTls);
+      const auto &qubits = props.at("qubits");
+      for (std::size_t q = 0; q < qubits.size() && q < chip.qubits.size(); ++q)
+        for (const auto &item : qubits[q]) {
+          const auto name = item.value("name", "");
+          if (name == "readout_error")
+            chip.qubits[q].readoutError = numberOf(item.at("value"));
+          else if (name == "operational")
+            chip.qubits[q].operational = numberOf(item.at("value")) != 0.0;
+        }
+      for (const auto &gate : props.at("gates")) {
+        if (gate.value("gate", "") != "cz" || gate.at("qubits").size() != 2)
+          continue;
+        auto it = linkIndex.find(
+            {gate["qubits"][0].get<int>(), gate["qubits"][1].get<int>()});
+        if (it == linkIndex.end())
+          continue;
+        auto &link = chip.links[it->second];
+        for (const auto &param : gate.value("parameters", nlohmann::json{})) {
+          const auto name = param.value("name", "");
+          if (name == "gate_error")
+            link.czError = numberOf(param.at("value"));
+          else if (name == "operational")
+            link.operational = numberOf(param.at("value")) != 0.0;
+        }
+      }
+    } catch (const std::exception &e) {
+      CUDAQ_WARN("IBM: could not read /properties for {} ({}); choosing the "
+                 "routing region without error rates.",
+                 backend, e.what());
+    }
+    return chip;
+  }
+
+  // Write the device file to a fresh private temp file (mkstemp: no name
+  // races in /tmp). Reused path on later compiles, removed in the destructor.
+  void writeDeviceFile(const std::string &text) {
+    if (ownDeviceFile.empty()) {
+      std::string pattern =
+          (std::filesystem::temp_directory_path() / "cudaq-ibm-device-XXXXXX")
+              .string();
+      const int fd = mkstemp(pattern.data());
+      if (fd < 0)
+        throw std::runtime_error("IBM: cannot create the device file in " +
+                                 pattern);
+      close(fd);
+      ownDeviceFile = pattern;
+    }
+    std::ofstream out(ownDeviceFile, std::ios::trunc);
+    out << text;
+    if (!out)
+      throw std::runtime_error("IBM: cannot write the device file " +
+                               ownDeviceFile);
+  }
+
 public:
+  ~IBMServerHelper() override {
+    if (!ownDeviceFile.empty()) {
+      std::error_code ec;
+      std::filesystem::remove(ownDeviceFile, ec);
+    }
+  }
+
   const std::string name() const override { return "ibm"; }
+
+  // M3. Called by CUDA-Q at every compile (decision 0009, D3): fetch the
+  // chip, number it breadth-first from a low-error root, and hand CUDA-Q
+  // the device file for `qubit-mapping{device=file(%QPU_ARCH%)}`.
+  std::map<std::string, std::string>
+  getPipelineSubstitutions(const std::filesystem::path &) override {
+    std::string path;
+    if (auto it = backendConfig.find("mapping_file");
+        it != backendConfig.end() && !it->second.empty()) {
+      // Override for tests: a device file whose node ids ARE IBM ids.
+      path = it->second;
+      std::ifstream in(path);
+      if (!in)
+        throw std::runtime_error("IBM: cannot read mapping_file " + path);
+      std::stringstream text;
+      text << in.rdbuf();
+      layout.adj = ibm::parseDeviceFile(text.str());
+      layout.ibmId.resize(layout.adj.size());
+      for (std::size_t i = 0; i < layout.ibmId.size(); ++i)
+        layout.ibmId[i] = static_cast<int>(i);
+    } else {
+      const ibm::Chip chip = fetchChip();
+      const ibm::Region region = ibm::usableRegion(chip);
+      const int root = ibm::chooseRoot(region, chip);
+      layout = ibm::breadthFirstLayout(region, root);
+      writeDeviceFile(ibm::deviceFileText(layout.adj));
+      path = ownDeviceFile;
+      CUDAQ_INFO("IBM: {} of {} qubits usable on {}; numbering starts at "
+                 "qubit {}",
+                 region.qubits.size(), chip.qubits.size(), backend, root);
+    }
+    CUDAQ_INFO("IBM: device file for routing: {}", path);
+    // Quoted like IQM does, to protect the path inside the pass option.
+    return {{"%QPU_ARCH%", "'" + path + "'"}};
+  }
 
   // §4 initialize. Called on set_target and again inside future::get().
   void initialize(BackendConfig config) override {
@@ -227,9 +365,28 @@ public:
     std::vector<ServerMessage> jobs;
     jobs.reserve(circuitCodes.size());
     for (const auto &circuitCode : circuitCodes) {
+      // M3: CUDA-Q routed the circuit, but then packed the qubits it used
+      // into labels 0..m-1 (m3-spec §2.4). Find a device qubit for every
+      // label such that each 2-qubit gate sits on a link (Layout.h, step 4).
+      if (layout.adj.empty())
+        throw std::runtime_error(
+            "IBM: no chip layout; the kernel was not compiled for 'ibm'.");
+      const auto interactions = ibm::qasm2Interactions(circuitCode.code);
+      const auto place = ibm::assignQubits(interactions.numQubits,
+                                           interactions.pairs, layout.adj);
+      std::vector<int> physical(place.size());
+      std::string mapText;
+      for (std::size_t i = 0; i < place.size(); ++i) {
+        physical[i] = layout.ibmId[place[i]];
+        mapText += (i ? " " : "") + std::to_string(i) + "->" +
+                   std::to_string(physical[i]);
+      }
+      CUDAQ_INFO("IBM: qubit labels -> IBM qubits for {}: {}", circuitCode.name,
+                 mapText);
+
       // M2: CUDA-Q gives us OpenQASM 2 in textbook gates; IBM only accepts
       // OpenQASM 3 in its native gates (an "ISA circuit").
-      const auto isa = ibm::qasm2ToIsaQasm3(circuitCode.code);
+      const auto isa = ibm::qasm2ToIsaQasm3(circuitCode.code, physical);
       CUDAQ_INFO("IBM: ISA circuit for {}:\n{}", circuitCode.name, isa.qasm3);
       ServerMessage job;
       job["program_id"] = "sampler";
@@ -316,6 +473,9 @@ public:
     if (numBits > 64)
       throw std::runtime_error("IBM: more than 64 measured bits not supported");
 
+    // No reorderIdx here, unlike IQM and OQC: their results come back in
+    // physical-qubit order, ours in classical-bit order, and CUDA-Q's QASM2
+    // already writes bit i for the user's i-th measured qubit [V] m3-spec.
     CountsDictionary counts;
     for (const auto &s : samples)
       ++counts[hexToCudaqBits(s.get<std::string>(), numBits)];
