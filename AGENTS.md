@@ -1,0 +1,77 @@
+# AGENTS.md
+
+Instructions for AI coding agents working in this repository. Humans: see
+[README.md](README.md) and [docs/](docs/README.md).
+
+## What this is
+
+An open-source IBM Quantum backend for CUDA-Q, and a **learning project** for its owner,
+Bruno. Two parts:
+
+- `src/cudaq_ibm/`: phase 1 Python prototype (CUDA-Q -> Qiskit -> IBM REST). Done; it is the
+  reference for facts about IBM's API.
+- `plugin/`: the C++ CUDA-Q plugin (`ServerHelper` + target YAML). Work in progress.
+
+Start with [docs/architecture.md](docs/architecture.md) (how it works now) and
+[docs/decisions/](docs/decisions/) (why).
+
+## Division of work
+
+- **Agents may write plumbing**: C++ HTTP/JSON code, CMake, YAML, Python test
+  infrastructure (fake servers, run scripts), CI and docs.
+- **Bruno owns the quantum side and design decisions**: gate rewrite rules in
+  `plugin/Qasm2ToIsa.h` (the `TODO(Bruno)` list) and their proofs, routing and layout
+  choices, and real hardware runs. Do not implement these unless he asks in the task. Explain,
+  give hints and review instead.
+- Any choice that is hard to reverse needs his decision; record it in `docs/decisions/`.
+
+## Commands
+
+```bash
+# Python prototype tests (any machine, also in CI). Never touch IBM.
+pip install -e ".[test]" && pytest -q
+
+# Gate rewrite unit test (any machine with g++, also in CI). No CUDA-Q needed.
+g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_qasm2_to_isa.cpp -o /tmp/test_isa && /tmp/test_isa
+```
+
+The C++ plugin itself only builds **inside a CUDA-Q 0.16 source build** in NVIDIA's Linux dev
+container ([docs/development.md](docs/development.md)). The pip `cudaq` has no headers or
+CMake files. A cloud agent usually cannot build or run it: say so instead of guessing, and
+give Bruno the exact commands to run in his container.
+
+When you add a rewrite rule (after Bruno has derived it), add a case to `kRuleCases` in
+`plugin/tests/test_qasm2_to_isa.cpp`; the test proves it up to global phase.
+
+## Rules
+
+- **Secrets.** IBM credentials come only from `IBM_QUANTUM_API_KEY` and `IBM_QUANTUM_CRN`
+  (or a git-ignored `.env`). Never put them in target arguments, logs, commits, chat or
+  memory. The API key must never pass through `RestClient` (it logs bodies at INFO).
+- **TLS.** CUDA-Q's `RestClient` turns certificate checks off by default. Calls we make
+  ourselves must verify TLS.
+- **Facts.** Tag claims in docs **[V]** verified (with source) or **[U]** unverified. Check
+  CUDA-Q behaviour against the `0.16.0` tag source, not memory.
+- **Docs.** Follow the conventions in [docs/README.md](docs/README.md). Update
+  `docs/architecture.md` in the same change as the code it describes. Section numbers in
+  `docs/specs/m1-spec.md` are cited by code comments (`§2.1` etc.); keep them stable.
+- **Licensing.** Files adapted from CUDA-Q keep NVIDIA's header and add "Modifications
+  copyright (c) 2026 Bruno Pacheco. Adapted from ..." (Apache-2.0 §4). Keep `NOTICE`.
+- **Style.** C++20, `.clang-format` in the repo root. Keep `Qasm2ToIsa.h` free of I/O and
+  CUDA-Q includes so its test compiles with plain `g++`.
+- **Writing.** Simple, direct English. Explain the quantum idea behind a step when it is not
+  obvious; this is a learning project.
+- **Git.** Work on a branch and open a PR; never push to `main`. Upstream CUDA-Q contributions
+  need a DCO sign-off; candidates are in [docs/upstream.md](docs/upstream.md).
+
+## Gotchas
+
+- Bit order: IBM returns little-endian hex (bit 0 right-most); CUDA-Q puts qubit 0 left-most.
+  Results must be reversed.
+- CUDA-Q's `Future::get` calls `getHeaders()` once per job, so tokens can expire during long
+  polls ([decision 0004](docs/decisions/0004-accept-token-expiry-in-v1.md)).
+- The decomposition pipeline leaves `y` and `u3` in the QASM2 output; the converter must
+  handle or reject them.
+- The dev container image also ships an older `cudaq`. `cudaq.__file__` must point into
+  `/work/cuda-quantum/build/python`.
+- Never `pip install` the Python prototype inside the dev container.

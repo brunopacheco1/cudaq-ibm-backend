@@ -12,7 +12,7 @@
 
 // IBM Quantum backend for CUDA-Q (M1: auth, submit, poll, results;
 // M2: OpenQASM 2 -> IBM ISA OpenQASM 3, see Qasm2ToIsa.h).
-// The spec for this file is docs/m1-spec.md. Section numbers (§) refer to it.
+// The spec for this file is docs/specs/m1-spec.md. Section numbers (§) refer to it.
 //
 // Not yet: qubit routing (M3). Circuits must use qubits that are wired
 // together on the chip (for M2: qubits 0 and 1).
