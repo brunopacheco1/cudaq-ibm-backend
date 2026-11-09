@@ -13,8 +13,8 @@
 // The key test PROVES each rewrite rule numerically: it builds the full
 // unitary matrix of the input circuit (textbook gates) and of the output
 // circuit (IBM native gates) and checks they are equal up to a global phase.
-// To add a rule (z, y, rx, ry, u3): add its textbook matrix in
-// textbookGate() below, add a case to kRuleCases, then implement the rule.
+// To add a rule: add its textbook matrix in textbookGate() below, add cases
+// to kRuleCases (several angles, including negative ones), then implement it.
 
 #include "Qasm2ToIsa.h"
 
@@ -127,7 +127,14 @@ static bool textbookGate(const std::string &name, const std::vector<double> &p,
   else if (name == "ry")
     g = {{std::cos(p.at(0) / 2), -std::sin(p.at(0) / 2)},
          {std::sin(p.at(0) / 2), std::cos(p.at(0) / 2)}};
-  else
+  else if (name == "u3") {
+    // qelib1.inc: u3(t,p,l) = [[cos(t/2), -e^{il} sin(t/2)],
+    //                          [e^{ip} sin(t/2), e^{i(p+l)} cos(t/2)]]
+    const double t = p.at(0), ph = p.at(1), l = p.at(2);
+    g = {{std::cos(t / 2), -std::exp(I1 * l) * std::sin(t / 2)},
+         {std::exp(I1 * ph) * std::sin(t / 2),
+          std::exp(I1 * (ph + l)) * std::cos(t / 2)}};
+  } else
     return false;
   return true;
 }
@@ -235,12 +242,26 @@ static void proveEquivalent(const std::string &label, int n,
         label + ": same unitary as input (up to global phase)");
 }
 
-// One entry per rewrite rule. Add z, y, rx, ry, u3 here when you write them.
+// One entry per rewrite rule, several angles each (one angle can match by
+// chance, e.g. pi).
 static const std::vector<std::tuple<std::string, int, std::string>> kRuleCases =
     {
         {"x", 1, "x var0[0];\n"},
         {"rz", 1, "rz(7.000000e-01) var0[0];\n"},
         {"h", 1, "h var0[0];\n"},
+        {"z", 1, "z var0[0];\n"},
+        {"y", 1, "y var0[0];\n"},
+        {"rx(0.7)", 1, "rx(7.000000e-01) var0[0];\n"},
+        {"rx(-2.3)", 1, "rx(-2.300000e+00) var0[0];\n"},
+        {"rx(pi)", 1, "rx(3.141592653589793e+00) var0[0];\n"},
+        {"ry(0.7)", 1, "ry(7.000000e-01) var0[0];\n"},
+        {"ry(-2.3)", 1, "ry(-2.300000e+00) var0[0];\n"},
+        {"ry(pi)", 1, "ry(3.141592653589793e+00) var0[0];\n"},
+        {"u3(0.7,1.1,-0.4)", 1, "u3(7.0e-01,1.1e+00,-4.0e-01) var0[0];\n"},
+        {"u3(2,-1.3,0.9)", 1, "u3(2.0e+00,-1.3e+00,9.0e-01) var0[0];\n"},
+        {"u3(pi,0,pi)", 1,
+         "u3(3.141592653589793e+00,0,3.141592653589793e+00) var0[0];\n"},
+        {"ry on qubit 1 of 2", 2, "ry(1.9e+00) var0[1];\n"},
         {"cx 0->1", 2, "cx var0[0], var0[1];\n"},
         {"cx 1->0", 2, "cx var0[1], var0[0];\n"},
 };
@@ -264,15 +285,22 @@ int main() {
   CHECK(bell.qasm3.find("c[1] = measure $1;") != std::string::npos,
         "bell: measurement of qubit 1 into c[1]");
 
-  // 4. Gates without a rule must be refused, never sent.
+  // 4. A mixed circuit using every rule at once.
+  proveEquivalent(
+      "all rules together", 2,
+      "h var0[0];\nry(4.0e-01) var0[1];\ncx var0[0], var0[1];\n"
+      "z var0[1];\nrx(-1.2e+00) var0[0];\ny var0[0];\n"
+      "u3(1.0e+00,2.0e+00,3.0e+00) var0[1];\ncx var0[1], var0[0];\n");
+
+  // 5. Gates without a rule must be refused, never sent.
   bool threw = false;
   try {
-    cudaq::ibm::qasm2ToIsaQasm3(wrap(1, "y var0[0];\n"));
+    cudaq::ibm::qasm2ToIsaQasm3(wrap(2, "swap var0[0], var0[1];\n"));
   } catch (const std::runtime_error &e) {
-    threw =
-        std::string(e.what()).find("unsupported gate 'y'") != std::string::npos;
+    threw = std::string(e.what()).find("unsupported gate 'swap'") !=
+            std::string::npos;
   }
-  CHECK(threw, "unsupported gate 'y' is refused");
+  CHECK(threw, "unsupported gate 'swap' is refused");
 
   std::cout << (failures ? "\nFAILED: " : "\nALL PASSED")
             << (failures ? std::to_string(failures) : "") << "\n";
