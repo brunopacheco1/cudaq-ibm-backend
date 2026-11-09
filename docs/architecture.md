@@ -75,10 +75,16 @@ with checks on fails with "SSL peer certificate or SSH remote key was not OK". O
 used to set a bundle only from `CURL_CA_BUNDLE`, so the first `ibm_fez` run failed at login
 (2026-11-09), although the dev container has `/work/cuda-quantum/build/cacert.pem`.
 
-So `initialize` finds a bundle in that same order, then tries `/etc/ssl/certs/ca-certificates.crt`,
-`/etc/pki/tls/certs/ca-bundle.crt` and `/etc/ssl/cert.pem`. It throws if none exists and never
-turns checks off. It passes the bundle to the IAM call (`CURLOPT_CAINFO`) and exports it as
-`CURL_CA_BUNDLE`, so the `RestClient` that `processResults` builds afterwards uses it too.
+So `initialize` finds a bundle **the same way `RestClient` does** (`CURL_CA_BUNDLE` if the file
+exists, else CUDA-Q's `cacert.pem`) and passes it to the IAM call with `CURLOPT_CAINFO`. Login and
+`RestClient` therefore trust the same certificates. If there is none, it throws and asks for
+`CURL_CA_BUNDLE`; it never turns checks off.
+
+**[V]** How CUDA-Q's own helpers do HTTPS (0.16.0 source): all of them use `RestClient`; none calls
+libcurl directly or picks a CA bundle itself. Most keep checks off (`enableSsl = false`): IonQ
+and OQC results, IQM, all Quantinuum calls, Anyon and Fermioniq login, and the `Future`
+polling. A few turn them on: qBraid, OQC `/admin/qpu`, Scaleway (when `secure`). Quantinuum's
+login passes `enableLogging = false` to keep secrets out of the log.
 
 ## 3. IBM REST API
 
