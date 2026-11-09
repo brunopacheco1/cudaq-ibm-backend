@@ -12,7 +12,7 @@
 
 // IBM Quantum backend for CUDA-Q (M1: auth, submit, poll, results;
 // M2: OpenQASM 2 -> IBM ISA OpenQASM 3, see Qasm2ToIsa.h).
-// The spec for this file is docs/m1-spec.md. Section numbers (§) refer to it.
+// How this file works: docs/architecture.md. Section numbers (§) refer to it.
 //
 // Not yet: qubit routing (M3). Circuits must use qubits that are wired
 // together on the chip (for M2: qubits 0 and 1).
@@ -35,7 +35,7 @@
 namespace cudaq {
 
 class IBMServerHelper : public ServerHelper {
-  // ---- Defaults (§2) -------------------------------------------------------
+  // ---- Defaults (§3) -------------------------------------------------------
   static constexpr const char *DEFAULT_URL =
       "https://quantum.cloud.ibm.com/api";
   static constexpr const char *DEFAULT_IAM_URL =
@@ -89,9 +89,9 @@ class IBMServerHelper : public ServerHelper {
     return size * count;
   }
 
-  // ---- IAM login (§2.1) ----------------------------------------------------
+  // ---- IAM login (§3.1) ----------------------------------------------------
   // RestClient::post can only send JSON and logs the body (which would
-  // contain the API key), so this one request uses libcurl directly (§4).
+  // contain the API key), so this one request uses libcurl directly (§2.2).
   std::string requestNewToken() {
     CURL *curl = curl_easy_init();
     if (!curl)
@@ -153,7 +153,7 @@ class IBMServerHelper : public ServerHelper {
     return token;
   }
 
-  // ---- Result decoding (§2.5) ----------------------------------------------
+  // ---- Result decoding (§3.5) ----------------------------------------------
   // "0x1" with 2 bits -> "01" (IBM, bit 0 right-most) -> "10" (CUDA-Q,
   // qubit 0 left-most).
   static std::string hexToCudaqBits(const std::string &hex,
@@ -168,7 +168,7 @@ class IBMServerHelper : public ServerHelper {
 public:
   const std::string name() const override { return "ibm"; }
 
-  // §3 initialize. Called on set_target and again inside future::get().
+  // §4 initialize. Called on set_target and again inside future::get().
   void initialize(BackendConfig config) override {
     CUDAQ_INFO("Initializing IBM backend.");
     backendConfig = config; // keep everything CUDA-Q passes along
@@ -187,7 +187,7 @@ public:
     parseConfigForCommonParams(config);
   }
 
-  // §2.2. Called once per poll loop (see the token-expiry limit).
+  // §3.2. Called once per poll loop (see the token-expiry limit).
   RestHeaders getHeaders() override {
     return {{"Authorization", "Bearer " + accessToken()},
             {"Service-CRN", crn},
@@ -195,7 +195,7 @@ public:
             {"Content-Type", "application/json"}};
   }
 
-  // §2.3. One Sampler job per kernel, one PUB per job.
+  // §3.3. One Sampler job per kernel, one PUB per job.
   ServerJobPayload
   createJob(std::vector<KernelExecution> &circuitCodes) override {
     std::vector<ServerMessage> jobs;
@@ -232,7 +232,7 @@ public:
     return constructGetJobPath(jobId);
   }
 
-  // §2.4. Throw on failure, otherwise CUDA-Q would poll forever.
+  // §3.4. Throw on failure, otherwise CUDA-Q would poll forever.
   bool jobIsDone(ServerMessage &getJobResponse) override {
     const std::string status =
         toUpper(getJobResponse.at("state").at("status").get<std::string>());
@@ -251,11 +251,11 @@ public:
     return std::chrono::seconds(5);
   }
 
-  // §2.5. One extra GET for the samples (same pattern as IonQ).
+  // §3.5. One extra GET for the samples (same pattern as IonQ).
   sample_result processResults(ServerMessage &getJobResponse,
                                std::string &jobId) override {
     auto headers = getHeaders();
-    const bool verifyTls = true; // RestClient's default is false (§4)
+    const bool verifyTls = true; // RestClient's default is false (§2.2)
     ServerMessage results = client.get(baseUrl + "/jobs/" + jobId + "/results",
                                        "", headers, verifyTls);
     CUDAQ_INFO("IBM: results for job {}: {}", jobId, results.dump());

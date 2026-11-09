@@ -1,159 +1,83 @@
-# ibm Plugin
+# `ibm` plugin for CUDA-Q
 
-`ibm` is a reference REST-style external QPU plugin. It demonstrates how
-to add a new target by providing a `ServerHelper` while reusing CUDA-Q's built-in
-`remote_rest` QPU implementation. It also demonstrates how a plugin author can
-build the target as a Python package that can be distributed to and installed
-by end users.
+The C++ part of this project: a CUDA-Q backend plugin that runs kernels on IBM Quantum.
+It started as a copy of CUDA-Q's `mock_rest` example plugin (see `../NOTICE`).
 
-This example is intentionally small. It does not simulate the submitted quantum
-program. Instead, it sends a configured bitstring to a simple mock REST service
-and expects that same bitstring as the sample result.
+Status: M1 done (IBM login, submit, poll, results), M2 in progress (gate rewrite).
+How it works: [../docs/architecture.md](../docs/architecture.md).
 
-## What It Demonstrates
+## Files
 
-- A standalone external plugin directory with `targets/`, `lib/`, and Python
-  package metadata generated into `build/external/ibm`.
-- A custom `cudaq::ServerHelper` registered under the target name `ibm`.
-- A target YAML file that selects `platform-qpu: remote_rest`.
-- Required `cudaq-version` metadata that prevents selection by an older CUDA-Q
-  installation and warns across newer major or minor release lines.
-- Python auto-discovery through the `cudaq.backends` entry point.
-- Distribution as a Python package that end users can install with `pip`.
-- Optional registration of the installed package in the user plugin scope for
-  `nvq++`.
-
-## How It Works
-
-The key files are:
-
-- `targets/ibm.yml.in`: declares the `ibm` target, selects
-  `remote_rest`, records the CUDA-Q version used to build the plugin, links
-  `-lcudaq-rest-qpu`, and exposes `url` and `value` target arguments.
-- `IBMServerHelper.cpp`: implements the REST contract for this backend.
-  It builds a job payload containing the compiled kernel, shot count, and the
-  configured `value` bitstring. When the server returns that value, the helper
-  maps it to CUDA-Q sample counts.
-- `python/__init__.py.in`: registers the built plugin root with CUDA-Q when the
-  package is discovered through the `cudaq.backends` entry point.
-- `python/__main__.py.in`: exposes `python3 -m cudaq_example_ibm
-  --install-nvqpp`, which installs the built plugin into the user plugin scope.
-
-For local testing, this plugin is meant to talk to the generic `mock_qpu` echo
-server in CUDA-Q's Python test utilities. It lives in
-`python/tests/utils/mock_qpu/echo/` and is launched through the shared test
-server driver:
-
-```sh
-python3 python/tests/utils/start_mock_qpu.py echo
-```
-
-The echo server accepts any POST payload, stores the payload's `value`, and
-returns that same value from `GET /jobs/<id>`.
+| File | Role |
+|---|---|
+| `IBMServerHelper.cpp` | The `cudaq::ServerHelper` for IBM: IAM login, job body, polling, result decoding. Details: [../docs/architecture.md](../docs/architecture.md) §2-§4. |
+| `Qasm2ToIsa.h` | Rewrites CUDA-Q's OpenQASM 2 into IBM's native gates, as OpenQASM 3. Header-only. |
+| `targets/ibm.yml.in` | The target: compiler pipeline and target arguments. |
+| `CMakeLists.txt` | Builds the plugin as a CUDA-Q external project. |
+| `python/`, `pyproject.toml.in` | Python package with a `cudaq.backends` entry point (still named `cudaq_example_ibm`; renamed in M4). |
+| `tests/test_qasm2_to_isa.cpp` | Unit test for the gate rewrite. Plain `g++`, no CUDA-Q needed. |
+| `tests/check_plugin.cpp`, `tests/lit.*` | Lit test inherited from `mock_rest` (`ninja check-ibm`). |
 
 ## Build
 
-From the CUDA-Q repository root:
+Inside the dev container ([../docs/development.md](../docs/development.md)), from the CUDA-Q
+source tree:
 
 ```sh
-cmake -B build \
-  -DCUDAQ_EXTERNAL_PROJECTS="ibm" \
-  -DCUDAQ_EXTERNAL_IBM_SOURCE_DIR=$PWD/examples/plugins/ibm
-
-ninja -C build cudaq-example-serverhelper-ibm
+cd /work/cuda-quantum
+cmake -B build -DCUDAQ_EXTERNAL_PROJECTS=ibm \
+  -DCUDAQ_EXTERNAL_IBM_SOURCE_DIR=/src/cudaq-ibm-backend/plugin
+ninja -C build -j 2 cudaq-example-serverhelper-ibm
 ```
 
-The built plugin root is:
+Output: `build/external/ibm/` with `targets/ibm.yml`, `lib/libcudaq-serverhelper-ibm.so` and
+the Python package files.
 
-```text
-build/external/ibm
-```
-
-It contains:
-
-- `targets/ibm.yml`
-- `lib/libcudaq-serverhelper-ibm.so` on Linux, or the platform equivalent
-- `pyproject.toml`, `__init__.py`, and `__main__.py` for Python packaging
-
-## Test
-
-Run the plugin lit test:
+## Use
 
 ```sh
-ninja -C build check-ibm
+export IBM_QUANTUM_API_KEY=...   # never as a target argument
+export IBM_QUANTUM_CRN=crn:v1:...
 ```
-
-The test checks that the plugin build output exists, the YAML target is valid,
-the plugin can be installed into a user plugin scope, `nvq++ --list-targets`
-finds it, and Python can load the target through direct registration and package
-entry-point discovery.
-
-## Run
-
-Start the echo mock QPU in one shell:
-
-```sh
-PYTHONPATH=$PWD/build/python \
-python3 python/tests/utils/start_mock_qpu.py echo
-```
-
-Then run a Python program in another shell:
 
 ```python
 import cudaq
 
-cudaq.register_backend_path("build/external/ibm")
-cudaq.set_target("ibm",
-                 url="http://localhost:62454",
-                 value="00101")
+cudaq.register_backend_path("build/external/ibm")   # not needed once pip-installed (M4)
+cudaq.set_target("ibm", backend="ibm_fez")
 
-kernel = cudaq.make_kernel()
-q = kernel.qalloc()
-kernel.h(q)
-kernel.mz(q)
+@cudaq.kernel
+def bell():
+    q = cudaq.qvector(2)
+    h(q[0]); cx(q[0], q[1])
+    mz(q)
 
-counts = cudaq.sample(kernel, shots_count=7)
-counts.dump()
-
-assert counts["00101"] == 7
+print(cudaq.sample(bell, shots_count=1000))
 ```
 
-`cudaq.sample(...)` submits the REST job and waits for the result. Use
-`cudaq.sample_async(...).get()` for the same flow when you want the future-based
-API.
+Target arguments: `backend` (default `ibm_fez`), `url` (default
+`https://quantum.cloud.ibm.com/api`), `iam_url` (tests only). Set `CUDAQ_LOG_LEVEL=info` to
+see the circuit sent and the raw results.
 
-## Install as an End User
+Until M2 is finished, only kernels made of `x`, `rz`, `h` and `cx` (and gates CUDA-Q turns
+into those) are accepted; anything else throws. There is no routing yet (M3), so 2-qubit gates
+must be on qubits that are wired together on the chip.
 
-The build produces a standard Python package containing the target YAML and
-shared library. A plugin author can build a wheel from this package, publish it
-to a package index, or otherwise distribute it to end users. The commands below
-show how an end user installs and enables that distributed target. They are
-distinct from the plugin-author build steps above.
-
-Because the package contains a native shared library, it is platform-specific.
-Plugin authors must build and distribute a separate package for each operating
-system and architecture that they intend to support, and ensure that each wheel
-has the corresponding platform tag.
-
-For this local example, install the package directly from its build directory
-(an end user would normally install the published package name or wheel):
+## Test
 
 ```sh
-python3 -m pip install build/external/ibm
+# Gate rewrite (any machine with g++, also in CI), from the repo root:
+g++ -std=c++20 -I plugin plugin/tests/test_qasm2_to_isa.cpp -o /tmp/test_isa && /tmp/test_isa
+
+# End to end against the fake IBM server: see ../docs/development.md §4.
 ```
 
-After the Python package is installed in the end user's environment,
-`import cudaq` discovers its `cudaq.backends` entry point, so explicit
-`cudaq.register_backend_path(...)` is no longer needed.
+`ninja -C build check-ibm` runs the inherited lit test. **Unverified:** it calls
+`set_target('ibm')` without IBM credentials, which `initialize` now refuses, so it probably
+fails until it is adapted (M4).
 
-To make the installed Python package visible to `nvq++` as well:
+## Install as a package (M4, not ready)
 
-```sh
-python3 -m cudaq_example_ibm --install-nvqpp
-```
-
-For C++-only workflows, install the built plugin root directly:
-
-```sh
-cudaq-install-plugin build/external/ibm
-```
+The build output is a Python package (`python3 -m pip install build/external/ibm`), and
+`python3 -m cudaq_example_ibm --install-nvqpp` registers it for `nvq++`. Whether a plugin
+built in the dev container loads into a pip-installed `cudaq` (ABI match) is not tested yet.
