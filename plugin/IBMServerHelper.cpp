@@ -93,29 +93,25 @@ class IBMServerHelper : public ServerHelper {
   }
 
   // ---- CA bundle (§2.3) ---------------------------------------------------
-  // CUDA-Q builds libcurl with no default CA store, so a caller that verifies
-  // TLS must name a bundle. Same order as RestClient, plus the usual system
-  // locations. Never falls back to turning verification off.
+  // CUDA-Q builds libcurl with no default CA store, so our own libcurl call
+  // must name a bundle. Same lookup as RestClient's constructor (0.16.0), so
+  // the IAM login and RestClient always trust the same certificates. Never
+  // falls back to turning verification off.
   static std::string findCaBundle() {
     namespace fs = std::filesystem;
-    std::vector<fs::path> candidates;
-    if (const char *env = std::getenv("CURL_CA_BUNDLE"); env && *env)
-      candidates.emplace_back(env);
+    std::error_code ec;
+    if (const char *env = std::getenv("CURL_CA_BUNDLE");
+        env && *env && fs::exists(env, ec))
+      return env;
     const fs::path cudaqLib{cudaq::getCUDAQLibraryPath()};
-    candidates.push_back(cudaqLib.parent_path().parent_path() / "cacert.pem");
-    for (const char *p :
-         {"/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu
-          "/etc/pki/tls/certs/ca-bundle.crt",   // RHEL, Fedora
-          "/etc/ssl/cert.pem"})                 // macOS, Alpine
-      candidates.emplace_back(p);
-    for (const auto &c : candidates) {
-      std::error_code ec;
-      if (fs::is_regular_file(c, ec))
-        return c.string();
-    }
+    const fs::path bundled =
+        cudaqLib.parent_path().parent_path() / "cacert.pem";
+    if (fs::exists(bundled, ec))
+      return bundled.string();
     throw std::runtime_error(
         "IBM: no CA bundle found to verify TLS. Set CURL_CA_BUNDLE to a PEM "
-        "file, for example one from https://curl.se/ca/cacert.pem.");
+        "file, for example /etc/ssl/certs/ca-certificates.crt or one from "
+        "https://curl.se/ca/cacert.pem.");
   }
 
   // ---- IAM login (§3.1) ----------------------------------------------------
@@ -206,10 +202,7 @@ public:
     apiKey = requiredEnv("IBM_QUANTUM_API_KEY");
     crn = requiredEnv("IBM_QUANTUM_CRN");
 
-    // RestClient reads CURL_CA_BUNDLE when it is constructed, so exporting the
-    // bundle we found also makes its TLS checks work (§2.3).
     caBundle = findCaBundle();
-    setenv("CURL_CA_BUNDLE", caBundle.c_str(), /*overwrite=*/1);
     CUDAQ_INFO("IBM: verifying TLS with CA bundle {}", caBundle);
 
     if (auto it = config.find("shots");
@@ -289,7 +282,7 @@ public:
                                std::string &jobId) override {
     auto headers = getHeaders();
     const bool verifyTls = true; // RestClient's default is false (§2.2)
-    RestClient client;           // built now, so it sees CURL_CA_BUNDLE (§2.3)
+    RestClient client;
     ServerMessage results = client.get(baseUrl + "/jobs/" + jobId + "/results",
                                        "", headers, verifyTls);
     CUDAQ_INFO("IBM: results for job {}: {}", jobId, results.dump());
