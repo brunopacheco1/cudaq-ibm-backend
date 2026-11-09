@@ -20,7 +20,7 @@ Start with [docs/architecture.md](docs/architecture.md) (how it works now) and
 - **Agents may write plumbing**: C++ HTTP/JSON code, CMake, YAML, Python test
   infrastructure (fake servers, run scripts), CI and docs.
 - **Bruno owns the quantum side and design decisions**: gate rewrite rules in
-  `plugin/Qasm2ToIsa.h` (the `TODO(Bruno)` list) and their proofs, routing and layout
+  `plugin/Qasm2ToIsa.h` and their proofs, routing and layout
   choices, and real hardware runs. Do not implement these unless he asks in the task. Explain,
   give hints and review instead.
 - Any choice that is hard to reverse needs his decision; record it in `docs/decisions/`.
