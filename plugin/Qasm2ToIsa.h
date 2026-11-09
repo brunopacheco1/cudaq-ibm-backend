@@ -74,9 +74,55 @@ inline void ruleCX(IsaBuilder &o, int c, int t) {
   ruleH(o, t);
 }
 
-// TODO(Bruno): z, y, rx(theta), ry(theta), u3(theta, phi, lambda).
-// Until a rule is written AND proven in the unit test, the converter throws
-// "unsupported gate" for it, so we never send a wrong circuit to hardware.
+// Rules below derived by Bruno on 2026-11-09, checked with Qiskit
+// Operator.equiv and proven again in the unit test. Gates are listed in
+// circuit order (first line = first gate applied).
+
+// z = rz(pi)                                             [proven 2026-11-09]
+inline void ruleZ(IsaBuilder &o, int a) { o.rz(PI, a); }
+
+// rx(t) = rz(pi/2) . sx . rz(t+pi) . sx . rz(pi/2)       [proven 2026-11-09]
+// Two quarter turns around X (sx) with a Z turn in between make any X turn.
+inline void ruleRX(IsaBuilder &o, double t, int a) {
+  o.rz(PI / 2, a);
+  o.sx(a);
+  o.rz(t + PI, a);
+  o.sx(a);
+  o.rz(PI / 2, a);
+}
+
+// ry(t) = sx . rz(t+pi) . sx . rz(pi)                    [proven 2026-11-09]
+// From ry(t) = rz(-pi/2) . rx(t) . rz(pi/2) ("turn Y onto X, rotate, turn
+// back"), then substitute the rx rule and merge neighbouring rz gates:
+// rz(-pi/2) rz(pi/2) = nothing, rz(pi/2) rz(pi/2) = rz(pi).
+inline void ruleRY(IsaBuilder &o, double t, int a) {
+  o.sx(a);
+  o.rz(t + PI, a);
+  o.sx(a);
+  o.rz(PI, a);
+}
+
+// y = rz(pi) . x                                          [proven 2026-11-09]
+// y is ry(pi) up to phase: sx rz(2pi) sx rz(pi) = sx sx rz(pi) = x rz(pi),
+// and x and rz(pi) give the same gate in either order (up to phase).
+inline void ruleY(IsaBuilder &o, int a) {
+  o.rz(PI, a);
+  o.x(a);
+}
+
+// u3(t, p, l) = rz(l) . sx . rz(t+pi) . sx . rz(p+pi)     [proven 2026-11-09]
+// u3 = rz(l) . ry(t) . rz(p) in circuit order; substitute the ry rule and
+// merge rz(pi) . rz(p) = rz(p+pi). This "ZSX" form covers every 1-qubit gate.
+inline void ruleU3(IsaBuilder &o, double t, double p, double l, int a) {
+  o.rz(l, a);
+  o.sx(a);
+  o.rz(t + PI, a);
+  o.sx(a);
+  o.rz(p + PI, a);
+}
+
+// Any gate without a rule makes the converter throw "unsupported gate", so we
+// never send a wrong circuit to hardware.
 
 // ============================================================================
 // Parser: CUDA-Q's OpenQASM 2 output (see tests for real examples).
@@ -167,6 +213,21 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
     } else if (name == "h") {
       expect(1, 0);
       ruleH(out, qs[0]);
+    } else if (name == "z") {
+      expect(1, 0);
+      ruleZ(out, qs[0]);
+    } else if (name == "y") {
+      expect(1, 0);
+      ruleY(out, qs[0]);
+    } else if (name == "rx") {
+      expect(1, 1);
+      ruleRX(out, args[0], qs[0]);
+    } else if (name == "ry") {
+      expect(1, 1);
+      ruleRY(out, args[0], qs[0]);
+    } else if (name == "u3") {
+      expect(1, 3);
+      ruleU3(out, args[0], args[1], args[2], qs[0]);
     } else if (name == "cx") {
       expect(2, 0);
       ruleCX(out, qs[0], qs[1]);

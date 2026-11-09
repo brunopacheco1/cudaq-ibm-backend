@@ -59,8 +59,8 @@ Target arguments: `backend` (default `ibm_fez`), `url` (default
 `https://quantum.cloud.ibm.com/api`), `iam_url` (tests only). Set `CUDAQ_LOG_LEVEL=info` to
 see the circuit sent and the raw results.
 
-Until M2 is finished, only kernels made of `x`, `rz`, `h` and `cx` (and gates CUDA-Q turns
-into those) are accepted; anything else throws. There is no routing yet (M3), so 2-qubit gates
+Kernels made of `x`, `y`, `z`, `h`, `rx`, `ry`, `rz`, `u3` and `cx` (and gates CUDA-Q turns
+into those, such as `s`, `t` and `cz`) are accepted; anything else throws. There is no routing yet (M3), so 2-qubit gates
 must be on qubits that are wired together on the chip.
 
 ## Test
