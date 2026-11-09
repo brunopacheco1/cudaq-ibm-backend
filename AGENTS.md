@@ -53,8 +53,8 @@ When you add a rewrite rule (after Bruno has derived it), add a case to `kRuleCa
 - **Facts.** Tag claims in docs **[V]** verified (with source) or **[U]** unverified. Check
   CUDA-Q behaviour against the `0.16.0` tag source, not memory.
 - **Docs.** Follow the conventions in [docs/README.md](docs/README.md). Update
-  `docs/architecture.md` in the same change as the code it describes. Section numbers in
-  `docs/specs/m1-spec.md` are cited by code comments (`§2.1` etc.); keep them stable.
+  `docs/architecture.md` in the same change as the code it describes. Its section numbers are
+  cited by code comments (`§3.1` etc.); keep them stable.
 - **Licensing.** Files adapted from CUDA-Q keep NVIDIA's header and add "Modifications
   copyright (c) 2026 Bruno Pacheco. Adapted from ..." (Apache-2.0 §4). Keep `NOTICE`.
 - **Style.** C++20, `.clang-format` in the repo root. Keep `Qasm2ToIsa.h` free of I/O and

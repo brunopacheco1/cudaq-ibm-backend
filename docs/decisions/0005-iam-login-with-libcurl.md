@@ -7,7 +7,7 @@ Date: 2026-11-08. Status: accepted.
 IBM IAM wants a form-encoded body (`grant_type=...&apikey=...`) **[V]**
 `src/cudaq_ibm/client.py`, which ran on `ibm_fez`. CUDA-Q's `RestClient::post` always sends
 JSON, logs the body at INFO, and turns off TLS certificate checks by default **[V]**
-`runtime/common/RestClient.cpp`. Details: [specs/m1-spec.md](../specs/m1-spec.md) §4.
+`runtime/common/RestClient.cpp`. Details: [architecture.md](../architecture.md) §2.2.
 
 ## Options
 
