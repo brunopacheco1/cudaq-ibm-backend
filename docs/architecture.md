@@ -148,12 +148,18 @@ pipeline produces a textbook basis, and `Qasm2ToIsa.h` rewrites each gate:
 | `x`, `rz` | unchanged | proven in unit test |
 | `h` | `rz(π/2) sx rz(π/2)` | proven in unit test |
 | `cx c,t` | `h t; cz c,t; h t` | proven in unit test |
-| `z` | `rz(π)` | open (M2) |
-| `rx(θ)` | `rz(π/2) sx rz(θ+π) sx rz(π/2)` | checked numerically, not in code yet |
-| `y`, `ry(θ)`, `u3(θ,φ,λ)` | to derive | open (M2) |
+| `z` | `rz(π)` | proven in unit test |
+| `y` | `rz(π) x` | proven in unit test |
+| `rx(θ)` | `rz(π/2) sx rz(θ+π) sx rz(π/2)` | proven in unit test |
+| `ry(θ)` | `sx rz(θ+π) sx rz(π)` | proven in unit test |
+| `u3(θ,φ,λ)` | `rz(λ) sx rz(θ+π) sx rz(φ+π)` | proven in unit test |
+
+Gates are in circuit order. How the last three follow from each other: `ry(θ) = rz(−π/2) rx(θ)
+rz(π/2)` (turn Y onto X, rotate, turn back), then merge neighbouring `rz`; `u3 = rz(λ) ry(θ) rz(φ)`,
+then merge again. Each rule is tested at several angles, including negative ones and π.
 
 CUDA-Q's decomposition leaves `y` and `u3` in the output **[V]** observed QASM2, 2026-11-08.
-Any gate without a rule makes the converter throw.
+Any gate without a rule (for example `swap`) makes the converter throw.
 
 Output ([decision 0006](decisions/0006-send-openqasm3-with-physical-qubits.md)):
 `OPENQASM 3.0; include "stdgates.inc"; bit[n] c;`, qubits as `$k`, measurements as
