@@ -130,6 +130,22 @@ static void testRegion() {
   notOp.links = {{0, 1, 0.01, false}, {1, 2, 0.01, true}};
   CHECK((usableRegion(notOp).qubits == std::vector<int>{1, 2}),
         "a non-operational link is dropped");
+
+  // IBM lists each link twice; one broken direction breaks the link.
+  Chip oneWay;
+  oneWay.qubits.assign(3, {});
+  oneWay.links = {{0, 1, 0.01, true},
+                  {1, 0, 1.0, true},
+                  {1, 2, 0.01, true},
+                  {2, 1, 0.02, false}};
+  CHECK(throws([&] { usableRegion(oneWay); }),
+        "a link broken in one direction only is dropped");
+  oneWay.links[3].operational = true; // 1-2 now fine both ways
+  Region ow = usableRegion(oneWay);
+  CHECK((ow.qubits == std::vector<int>{1, 2}) &&
+            ow.linkError.at({1, 2}) == 0.02,
+        "only the link broken one way is dropped; the other keeps its worse "
+        "error");
 }
 
 // ---- 2. Root ---------------------------------------------------------------

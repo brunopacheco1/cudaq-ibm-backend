@@ -12,10 +12,12 @@ How it works: [../docs/architecture.md](../docs/architecture.md).
 |---|---|
 | `IBMServerHelper.cpp` | The `cudaq::ServerHelper` for IBM: IAM login, job body, polling, result decoding. Details: [../docs/architecture.md](../docs/architecture.md) §2-§4. |
 | `Qasm2ToIsa.h` | Rewrites CUDA-Q's OpenQASM 2 into IBM's native gates, as OpenQASM 3. Header-only. |
+| `Layout.h` | M3 routing: usable region, root, breadth-first numbering, device file, label -> qubit search. Header-only. |
+| `ResultBits.h` | IBM's hex samples -> CUDA-Q bit strings, keeping the measured qubits. Header-only. |
 | `targets/ibm.yml.in` | The target: compiler pipeline and target arguments. |
 | `CMakeLists.txt` | Builds the plugin as a CUDA-Q external project. |
 | `python/`, `pyproject.toml.in` | Python package with a `cudaq.backends` entry point (still named `cudaq_example_ibm`; renamed in M4). |
-| `tests/test_qasm2_to_isa.cpp` | Unit test for the gate rewrite. Plain `g++`, no CUDA-Q needed. |
+| `tests/test_qasm2_to_isa.cpp`, `tests/test_layout.cpp`, `tests/test_result_bits.cpp` | Unit tests for the three headers. Plain `g++`, no CUDA-Q needed (run `test_layout` from the repo root). |
 | `tests/check_plugin.cpp`, `tests/lit.*` | Lit test inherited from `mock_rest` (`ninja check-ibm`). |
 
 ## Build

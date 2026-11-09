@@ -129,9 +129,12 @@ Content-Type:  application/json
   `{"results": [{"data": {"c": {"samples": ["0x0", "0x3", ...]}}}]}`
 - One hex string per shot. Bit 0 is the **right-most** bit (little-endian). CUDA-Q puts qubit
   0 **left-most**, so we reverse: `"0x1"` on 2 bits -> `"01"` -> `"10"` in CUDA-Q.
-- Register size: from the circuit we sent (`outputNames` for the job); fallbacks: `num_bits`
-  in the response, then the widest sample. **[V]** IBM sends `num_bits` (2 for a Bell pair on
-  `ibm_fez`, 2026-11-09).
+- Register size: `num_bits` in the response; fallback: the widest sample. **[V]** IBM sends
+  `num_bits` (2 for a Bell pair on `ibm_fez`, 2026-11-09). Any width (no 64-bit limit).
+- Which bits CUDA-Q gets (M3, [decision 0009](decisions/0009-route-with-cudaq-then-assign-qubits.md)
+  item 5): our circuit measures every qubit in allocation order, so `c[i]` is qubit i. We keep
+  `c[q]` for each qubit q in the job's `output_names`, ascending; with no `output_names`, every
+  bit. Code: `plugin/ResultBits.h`.
 
 ## 4. IBMServerHelper, method by method
 
@@ -144,7 +147,7 @@ Content-Type:  application/json
 | `constructGetJobPath` | `{base}/jobs/{id}` (both overloads). |
 | `jobIsDone` | `COMPLETED` -> true; `FAILED`/`CANCELLED` -> **throw** (otherwise CUDA-Q polls forever); else false. |
 | `nextResultPollingInterval` | 5 seconds. |
-| `processResults` | Extra `GET {base}/jobs/{id}/results` with TLS checks on (IonQ does the same). Requires one register. Decodes §3.5 into counts. Logs the results JSON at INFO. |
+| `processResults` | Extra `GET {base}/jobs/{id}/results` with TLS checks on (IonQ does the same). Requires one register. Decodes §3.5 into counts, keeping only the bits of the qubits in `output_names`. Logs the results JSON at INFO. |
 
 ## 5. Components
 

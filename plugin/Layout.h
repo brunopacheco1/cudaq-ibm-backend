@@ -70,25 +70,32 @@ struct Region {
 /// Keep links that work (operational, cz error below 1, both qubits
 /// operational), then keep only the largest connected part. A device file
 /// with unreachable qubits makes CUDA-Q fail ("disconnected device topology").
+/// IBM lists each link in both directions; if either direction is broken,
+/// the link is dropped, and otherwise it keeps the worse of the two errors.
 inline Region usableRegion(const Chip &chip) {
   const int n = static_cast<int>(chip.qubits.size());
   Region r;
   r.adj.assign(n, {});
+  std::map<std::pair<int, int>, std::pair<double, bool>> pairs; // error, ok
   for (const auto &l : chip.links) {
     if (l.a < 0 || l.b < 0 || l.a >= n || l.b >= n || l.a == l.b)
       continue;
-    if (!l.operational || l.czError >= 1.0 || !chip.qubits[l.a].operational ||
-        !chip.qubits[l.b].operational)
-      continue;
-    const auto key = std::minmax(l.a, l.b);
-    auto [it, fresh] = r.linkError.emplace(key, l.czError);
+    const bool ok = l.operational && l.czError < 1.0 &&
+                    chip.qubits[l.a].operational &&
+                    chip.qubits[l.b].operational;
+    auto [it, fresh] =
+        pairs.emplace(std::minmax(l.a, l.b), std::make_pair(l.czError, ok));
     if (!fresh) {
-      // Same link listed in the other direction: keep the worse error.
-      it->second = std::max(it->second, l.czError);
-      continue;
+      it->second.first = std::max(it->second.first, l.czError);
+      it->second.second = it->second.second && ok;
     }
-    r.adj[l.a].push_back(l.b);
-    r.adj[l.b].push_back(l.a);
+  }
+  for (const auto &[key, state] : pairs) {
+    if (!state.second)
+      continue;
+    r.linkError.emplace(key, state.first);
+    r.adj[key.first].push_back(key.second);
+    r.adj[key.second].push_back(key.first);
   }
 
   // Connected parts, by breadth-first search from each unseen qubit.
@@ -279,10 +286,22 @@ inline std::vector<std::vector<int>> parseDeviceFile(const std::string &text) {
 // 2-qubit gate lands on a link performs the same computation; only the noise
 // differs. Qubits the router borrowed start in |0> wherever they sit.
 //
-// Search: depth-first, one connected group of interacting labels at a time.
-// A label whose partner is placed must sit on a neighbour of the partner (at
-// most 3 choices on IBM heavy-hex); a free label tries its own number first,
-// so labels stay on the region CUDA-Q routed on whenever possible.
+// Search: depth-first with backtracking (so it is complete: it finds a map
+// whenever one exists, unless the step budget runs out). To stay fast on a
+// full chip it always places next the label with the most placed partners
+// (fewest choices: on IBM heavy-hex at most 3), and it checks ahead:
+//   - a label can only sit on a device qubit with at least as many links as
+//     the label has partners;
+//   - after placing a label, each unplaced partner must still have a free
+//     candidate, otherwise it backs up at once.
+// A label with no placed partner (the first of each connected group) tries
+// its own number first, so labels stay near the region CUDA-Q routed on.
+//
+// Known limit: a circuit that fills (almost) the whole chip may hit the step
+// budget and be refused with a clear error, never a wrong placement. In a
+// stress test on ibm_fez (labels shuffled, worst case for the search), 0 of
+// 40 failed at 100 and 130 labels, 19 of 40 at all 156. A circuit that uses
+// the whole chip is far beyond what we run in M3.
 // ============================================================================
 
 inline std::vector<int>
@@ -307,22 +326,27 @@ assignQubits(int numLabels, const std::vector<std::pair<int, int>> &pairs,
     p.erase(std::unique(p.begin(), p.end()), p.end());
   }
 
-  // Visit order: each group breadth-first, so a label's first partner is
-  // placed before it (except the first label of each group).
-  std::vector<int> order;
-  std::vector<char> seen(numLabels, 0);
-  for (int s = 0; s < numLabels; ++s) {
-    if (seen[s])
-      continue;
-    seen[s] = 1;
-    const std::size_t start = order.size();
-    order.push_back(s);
-    for (std::size_t i = start; i < order.size(); ++i)
-      for (int v : partners[order[i]])
-        if (!seen[v]) {
-          seen[v] = 1;
-          order.push_back(v);
-        }
+  // Size of each label's connected group: big groups are placed first,
+  // while the chip is still empty (small ones fit in the gaps later).
+  std::vector<int> groupSize(numLabels, 0);
+  {
+    std::vector<int> group(numLabels, -1), sizes;
+    for (int s = 0; s < numLabels; ++s) {
+      if (group[s] != -1)
+        continue;
+      const int id = static_cast<int>(sizes.size());
+      std::vector<int> members{s};
+      group[s] = id;
+      for (std::size_t i = 0; i < members.size(); ++i)
+        for (int v : partners[members[i]])
+          if (group[v] == -1) {
+            group[v] = id;
+            members.push_back(v);
+          }
+      sizes.push_back(static_cast<int>(members.size()));
+    }
+    for (int l = 0; l < numLabels; ++l)
+      groupSize[l] = sizes[group[l]];
   }
 
   std::vector<int> place(numLabels, -1);
@@ -332,9 +356,13 @@ assignQubits(int numLabels, const std::vector<std::pair<int, int>> &pairs,
   auto isLinked = [&](int x, int y) {
     return std::binary_search(adj[x].begin(), adj[x].end(), y);
   };
+  auto fits = [&](int label, int d) {
+    return !used[d] && adj[d].size() >= partners[label].size();
+  };
 
-  // Candidate device qubits for a label, best first.
-  auto candidates = [&](int label) {
+  // Free device qubits a label can take now, given its placed partners.
+  // Only called for labels with at least one placed partner.
+  auto anchoredCandidates = [&](int label) {
     std::vector<int> out;
     int anchor = -1;
     for (int p : partners[label])
@@ -342,40 +370,86 @@ assignQubits(int numLabels, const std::vector<std::pair<int, int>> &pairs,
         anchor = place[p];
         break;
       }
-    if (anchor == -1) {
-      out.resize(numDevice);
-      std::iota(out.begin(), out.end(), 0);
-    } else {
-      for (int d : adj[anchor]) {
-        bool ok = true;
-        for (int p : partners[label])
-          if (place[p] != -1 && !isLinked(place[p], d)) {
-            ok = false;
-            break;
-          }
-        if (ok)
-          out.push_back(d);
-      }
+    for (int d : adj[anchor]) {
+      if (!fits(label, d))
+        continue;
+      bool ok = true;
+      for (int p : partners[label])
+        if (place[p] != -1 && !isLinked(place[p], d)) {
+          ok = false;
+          break;
+        }
+      if (ok)
+        out.push_back(d);
     }
-    // Prefer the label's own number, then ascending.
-    std::stable_partition(out.begin(), out.end(),
-                          [&](int d) { return d == label; });
     return out;
   };
 
-  // Explicit recursion is fine: depth <= number of labels (<= chip size).
-  auto search = [&](auto &self, std::size_t k) -> bool {
-    if (k == order.size())
+  // Next label: most placed partners, then fewest candidates, then biggest
+  // group, then most partners, then lowest number. -1 when all are placed.
+  auto nextLabel = [&]() {
+    int best = -1, bestPlaced = -1, bestPartners = -1, bestGroup = -1;
+    std::size_t bestChoices = 0;
+    for (int l = 0; l < numLabels; ++l) {
+      if (place[l] != -1)
+        continue;
+      int placed = 0;
+      for (int p : partners[l])
+        placed += place[p] != -1;
+      const int total = static_cast<int>(partners[l].size());
+      const std::size_t choices =
+          placed ? anchoredCandidates(l).size() : static_cast<std::size_t>(-1);
+      const bool better =
+          best == -1 || placed > bestPlaced ||
+          (placed == bestPlaced &&
+           (choices < bestChoices ||
+            (choices == bestChoices &&
+             (groupSize[l] > bestGroup ||
+              (groupSize[l] == bestGroup && total > bestPartners)))));
+      if (better) {
+        best = l;
+        bestPlaced = placed;
+        bestChoices = choices;
+        bestGroup = groupSize[l];
+        bestPartners = total;
+      }
+    }
+    return best;
+  };
+
+  // Every unplaced partner of `label` still has somewhere to go.
+  auto lookAhead = [&](int label) {
+    for (int p : partners[label])
+      if (place[p] == -1 && anchoredCandidates(p).empty())
+        return false;
+    return true;
+  };
+
+  // Recursion depth <= number of labels (<= chip size).
+  auto search = [&](auto &self) -> bool {
+    const int label = nextLabel();
+    if (label == -1)
       return true;
-    const int label = order[k];
-    for (int d : candidates(label)) {
+    bool anchored = false;
+    for (int p : partners[label])
+      anchored = anchored || place[p] != -1;
+    std::vector<int> options;
+    if (anchored) {
+      options = anchoredCandidates(label);
+    } else {
+      for (int d = 0; d < numDevice; ++d)
+        if (fits(label, d))
+          options.push_back(d);
+    }
+    // Prefer the label's own number, then ascending.
+    std::stable_partition(options.begin(), options.end(),
+                          [&](int d) { return d == label; });
+    for (int d : options) {
       if (++steps > budget)
         return false;
-      if (used[d])
-        continue;
       place[label] = d;
       used[d] = 1;
-      if (self(self, k + 1))
+      if (lookAhead(label) && self(self))
         return true;
       place[label] = -1;
       used[d] = 0;
@@ -383,7 +457,7 @@ assignQubits(int numLabels, const std::vector<std::pair<int, int>> &pairs,
     return false;
   };
 
-  if (!search(search, 0))
+  if (!search(search))
     throw std::runtime_error(
         steps > budget
             ? "ibm: gave up placing the circuit on the chip after " +

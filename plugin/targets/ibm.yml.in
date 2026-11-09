@@ -25,8 +25,14 @@ config:
   # part follows iqm.yml, plus placement=auto search=sabre (far fewer swaps
   # than the default identity start: GHZ-20 on ibm_fez needs 28 cz instead
   # of 151). Checked with pip cudaq 0.16.0 (experiments/m3_routing.py).
+  # combine-measurements (then expand-measurements and cc-loop-unroll to
+  # turn the combined measure back into one per qubit) makes the circuit
+  # measure every qubit in allocation order and records which ones the
+  # user measured in output_names; processResults keeps those (see
+  # ResultBits.h). Without it, sabre can reorder the measurements and the
+  # counts come back in the wrong bit order (experiments/m3_bit_order.py).
   jit-high-level-pipeline: "expand-measurements"
-  jit-mid-level-pipeline: "func.func(erase-implicit-output),decomposition{basis=h,rx,ry,rz,x,z,x(1)},func.func(add-dealloc,combine-quantum-alloc,canonicalize,factor-quantum-alloc,dqe,cse,memtoreg),add-wireset,func.func(assign-wire-indices),qubit-mapping{device=file(%QPU_ARCH%) placement=auto search=sabre},func.func(delay-measurements),lower-to-cfg,func.func(regtomem),quake-to-cc-prep,func.func(memtoreg{quantum=0})"
+  jit-mid-level-pipeline: "func.func(erase-implicit-output),decomposition{basis=h,rx,ry,rz,x,z,x(1)},func.func(add-dealloc,combine-quantum-alloc,canonicalize,combine-measurements),expand-measurements,func.func(cc-loop-unroll,canonicalize,factor-quantum-alloc,dqe,cse,memtoreg),add-wireset,func.func(assign-wire-indices),qubit-mapping{device=file(%QPU_ARCH%) placement=auto search=sabre},func.func(delay-measurements),lower-to-cfg,func.func(regtomem),quake-to-cc-prep,func.func(memtoreg{quantum=0})"
   codegen-emission: qasm2
   library-mode: false
 

@@ -75,6 +75,23 @@ print(counts)
 assert counts["1" + "0" * 19] == 2 and counts["01" + "0" * 18] == 1, counts
 print("OK: GHZ-20 routed onto ibm_fez wiring; every cz is on a working link.")
 
+# M3: measurements out of order. CUDA-Q's result lists measured qubits by
+# allocation order, whatever order mz ran in. The pipeline measures every
+# qubit in allocation order and processResults keeps the ones the kernel
+# measured (ResultBits.h). Samples 0x1, 0x1, 0x2 set c[0] (qubit 0) twice
+# and c[1] (qubit 1, not measured by the kernel) once, so the answer is
+# 10, 10, 00. Before the fix c[0] was q[2], and 0x1 came back as "01".
+kernel = cudaq.make_kernel()
+q = kernel.qalloc(3)
+kernel.x(q[0])
+kernel.mz(q[2])
+kernel.mz(q[0])
+
+counts = cudaq.sample(kernel, shots_count=3)
+print(counts)
+assert counts["10"] == 2 and counts["00"] == 1, counts
+print("OK: out-of-order mz comes back in allocation order (q0, q2).")
+
 # M3: the mapping_file override (no /configuration fetch). Node ids are IBM
 # qubit ids: here the path 0-1-2-3-4, which is wired on ibm_fez.
 import tempfile  # noqa: E402
