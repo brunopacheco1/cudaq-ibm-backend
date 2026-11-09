@@ -183,6 +183,12 @@ then merge again. Each rule is tested at several angles, including negative ones
 CUDA-Q's decomposition leaves `y` and `u3` in the output **[V]** observed QASM2, 2026-11-08.
 Any gate without a rule (for example `swap`) makes the converter throw.
 
+**[V]** End to end (second kernel of `tests/run_fake_ibm.py`, 2026-11-09): `rx`, `ry`, `z` and `y`
+reach the converter and come out as in the table; the whole ISA circuit equals the kernel up to
+global phase (|tr(U†V)|/4 = 1 − 7·10⁻¹⁵). In that builder kernel `u3` arrived already split into
+`rz rx rz`, and `s`/`t` arrived as `rz(1.570796)` and `rz(0.7853982)`: π rounded to about 7
+digits by CUDA-Q (cause **[U]**). The error is ~3·10⁻⁷ rad, far below hardware noise.
+
 Output ([decision 0006](decisions/0006-send-openqasm3-with-physical-qubits.md)):
 `OPENQASM 3.0; include "stdgates.inc"; bit[n] c;`, qubits as `$k`, measurements as
 `c[i] = measure $k;`. CUDA-Q's 1-bit `creg`s are merged in program order into `c`.
