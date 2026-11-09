@@ -1,6 +1,7 @@
 # M3 spec: routing
 
-Date: 2026-11-09. Status: **choices made (§3), code in review**. Deleted when M3 is done
+Date: 2026-11-09. Status: **choices made (§3), code in review; review fixes done, three
+proposals wait for Bruno (decision 0009 items 3-5)**. Deleted when M3 is done
 (facts go to [architecture.md](architecture.md), choices to [decisions/](decisions/)).
 Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified. CUDA-Q file references are in the
@@ -62,8 +63,9 @@ device whose centre is qubit 9:
 | QIR (`qir-base`, as OQC uses) | also `5`, not `9` |
 | Before `regtomem` (`wireset-to-profile-qir`) | the id is still `9`, but our QIR translation of that form failed (cause **[U]**) |
 
-So `regtomem` packs the used qubits into 0..m-1 in order (`RegToMem.cpp:560-590` makes one
-new `alloca` per used wire). If routing uses device qubits that are not 0..m-1, the ids we
+So `regtomem` packs the used qubits into 0..m-1 (`RegToMem.cpp:560-590` makes one new
+`alloca` per used wire). With the identity start the packing keeps device order; with
+`placement=auto` the labels follow the kernel's qubits, so neither order can be relied on. If routing uses device qubits that are not 0..m-1, the ids we
 receive are wrong, and we cannot rebuild them: the layout is not passed to us (§2.3).
 OQC and Anyon also route and then run `regtomem`, so they may have the same problem **[U]**:
 not tested on their devices. This is the upstream item #5 in [upstream.md](upstream.md),
@@ -99,12 +101,20 @@ list of gates on labels, so running it through any one-to-one map to chip qubits
 |0> wherever they sit. A depth-first search finds such a map: 300/300 simulated cases in
 `plugin/tests/test_layout.cpp`, and every routed circuit above, in at most a few hundred steps.
 
-### 2.8 Results are already in user order
+### 2.8 Result bit order needs one more pass
 
-**[V]** [`experiments/m3_bit_order.py`](../experiments/m3_bit_order.py): in 40 routed random
-circuits (both placement options), bit i of the QASM2 classical register is the user's i-th
-measured qubit. Applying `reorderIdx` breaks 22-24 of them. IQM and OQC need it because their
-results come back in physical-qubit order; ours come back in classical-bit order.
+**[V]** [`experiments/m3_bit_order.py`](../experiments/m3_bit_order.py), ground truth =
+`cudaq.sample` on the local simulator. CUDA-Q's result lists the measured qubits sorted by
+allocation order (`Mapping.cpp:3330`). Our first pipeline gave the bits in measure-statement
+order, which is wrong when a kernel measures out of order (`mz(q[2]); mz(q[0])`) or measures
+registers in reverse: 11 of 120 random kernels. (An earlier version of the experiment only
+measured in order and wrongly found no problem.)
+
+Fix: run `combine-measurements` before routing (then `expand-measurements`,
+`cc-loop-unroll`). The circuit then measures every qubit in allocation order, and
+`output_names` lists the qubits the kernel measured; `processResults` keeps those bits
+(`plugin/ResultBits.h`). 0 of 120 wrong, on path, star, ring and `ibm_fez` graphs.
+`reorderIdx` does not fit IBM: it assumes results sorted by physical qubit.
 
 ### 2.9 The router's start layout matters
 
@@ -115,6 +125,18 @@ results come back in physical-qubit order; ours come back in classical-bit order
 | GHZ-5 chain | 10 | 4 |
 | GHZ-20 chain | 151 | 28 |
 | 12-qubit ring | 78 | 12 |
+
+### 2.10 The search on a nearly full chip
+
+**[V]** stress test (random connected circuits on `ibm_fez`, labels shuffled, budget 10^6
+steps): 0 of 40 refused up to 130 labels, 19 of 40 at all 156 (worst 0.36 s). With labels in
+device order: 0 of 40 at every size. A refusal is a clear error, never a wrong placement.
+
+### 2.11 Kernels without `mz`
+
+**[V]** A kernel with no `mz` and a qubit it never touches: CUDA-Q drops the idle qubit
+before measuring, so its bit is missing (`cudaq.sample` locally shows it as 0). Same before and
+after the §2.8 fix. Rare; documented, not fixed.
 
 ## 3. Choices for Bruno
 
@@ -175,7 +197,8 @@ Recommendation: **A**, plus an override for tests: `mapping_file` target argumen
 | Numbering rule (breadth-first) and its proof that prefixes stay connected | Bruno (review) | Written in `Layout.h` §3, to review |
 | `getPipelineSubstitutions`, fetch, prune, root, numbering, device file, YAML | Claude | Done, unit tested |
 | Assignment search, `$k` relabel in the converter | Claude | Done, unit tested |
-| `reorderIdx` | Claude | Not needed (§2.8) |
+| Result bit order (`combine-measurements`, `ResultBits.h`) | Claude | Done, unit tested (§2.8) |
+| Review fixes (search, one-way broken links, `/properties` parsing, 60 s chip cache, atomic device file) | Claude | Done |
 | Fake server: `/configuration`, `/properties`, reject `cz` on unwired or broken pairs | Claude | Done, `tests/test_fake_server.py` |
 | Build the plugin, run `tests/run_fake_ibm.py` (incl. GHZ-20, `mapping_file`) | Bruno (container) | Next |
 | GHZ-5 on `ibm_fez` | Bruno | After that |

@@ -66,3 +66,11 @@ def test_cz_on_broken_pair_is_rejected():
 def test_down_qubit_is_rejected():
     r = client.post("/api/v1/jobs", headers=AUTH, json=job(["x $61;"]))
     assert r.status_code == 400 and "not usable" in r.json()["detail"]
+
+
+def test_results_report_num_bits_of_the_circuit():
+    job_id = client.post("/api/v1/jobs", headers=AUTH,
+                         json=job(["x $0;"])).json()["id"]
+    reg = client.get(f"/api/v1/jobs/{job_id}/results",
+                     headers=AUTH).json()["results"][0]["data"]["c"]
+    assert reg["num_bits"] == 1 and reg["samples"] == fake.SAMPLES

@@ -161,7 +161,10 @@ async def submit_job(request: Request):
         print(f"[fake-ibm] circuit uses qubits {used}, "
               f"{pub[0].count('cz ')} cz, all on working links")
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {"polls": 0, "body": body}
+    # IBM reports the register size as num_bits (architecture.md §3.5).
+    bits = re.search(r"^bit\[(\d+)\] c;$", pubs[0][0], re.MULTILINE)
+    jobs[job_id] = {"polls": 0, "body": body,
+                    "num_bits": int(bits.group(1)) if bits else 0}
     print(f"[fake-ibm] job {job_id}: backend={body.get('backend')} "
           f"shots={pubs[0][2]}")
     return {"id": job_id, "backend": body.get("backend")}
@@ -184,7 +187,8 @@ async def job_results(job_id: str, request: Request):
     check_auth(request)
     if job_id not in jobs:
         raise HTTPException(404, "job not found")
-    return {"results": [{"data": {"c": {"samples": SAMPLES}}}]}
+    return {"results": [{"data": {"c": {
+        "samples": SAMPLES, "num_bits": jobs[job_id]["num_bits"]}}}]}
 
 
 if __name__ == "__main__":

@@ -31,3 +31,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_layout.cpp -o test_layout
       - run: ./test_layout
+  result-bits:
+    # C++ unit tests for plugin/ResultBits.h (IBM samples -> CUDA-Q bits).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_result_bits.cpp -o test_result_bits
+      - run: ./test_result_bits

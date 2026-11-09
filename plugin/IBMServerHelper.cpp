@@ -17,6 +17,7 @@
 
 #include "Layout.h"
 #include "Qasm2ToIsa.h"
+#include "ResultBits.h"
 #include "common/RestClient.h"
 #include "common/ServerHelper.h"
 #include "nlohmann/json.hpp"
@@ -37,7 +38,7 @@
 #include <string>
 #include <vector>
 
-#include <unistd.h> // close (mkstemp is in <cstdlib>)
+#include <unistd.h> // close, write (mkstemp is in <cstdlib>)
 
 namespace cudaq {
 
@@ -67,9 +68,17 @@ class IBMServerHelper : public ServerHelper {
   std::string caBundle;
 
   // M3 routing. The chip numbering CUDA-Q routed on (device label -> IBM
-  // qubit), set in getPipelineSubstitutions and used in createJob. Both run
-  // in the same compile-and-submit call, so they see the same layout.
+  // qubit), set in getPipelineSubstitutions and used in createJob.
+  // CUDA-Q calls getPipelineSubstitutions twice per sample (once to
+  // compile, once more before createJob), so the chip data is kept for a
+  // short time: both calls then build the same layout, with one fetch.
+  // Correctness does not depend on it: createJob searches for a placement
+  // on whatever layout it has (Layout.h, step 4).
   ibm::Layout layout;
+  ibm::Chip cachedChip;
+  std::string chipBackend; // backend the cached chip belongs to
+  std::chrono::steady_clock::time_point chipFetched{};
+  static constexpr int CHIP_CACHE_SECONDS = 60;
   // Device file we wrote (empty when the user gave mapping_file).
   std::string ownDeviceFile;
 
@@ -187,18 +196,6 @@ class IBMServerHelper : public ServerHelper {
     return token;
   }
 
-  // ---- Result decoding (§3.5) ----------------------------------------------
-  // "0x1" with 2 bits -> "01" (IBM, bit 0 right-most) -> "10" (CUDA-Q,
-  // qubit 0 left-most).
-  static std::string hexToCudaqBits(const std::string &hex,
-                                    std::size_t numBits) {
-    unsigned long long value = std::stoull(hex, nullptr, 16);
-    std::string bits(numBits, '0');
-    for (std::size_t i = 0; i < numBits; ++i)
-      bits[i] = ((value >> i) & 1ULL) ? '1' : '0'; // bit i -> position i
-    return bits;
-  }
-
   // ---- Chip data for routing (M3) -----------------------------------------
   // GET /backends/{name}/configuration (wiring) and /properties (errors).
   // One "value" may be a number or a boolean.
@@ -226,62 +223,95 @@ class IBMServerHelper : public ServerHelper {
     }
 
     // Errors are optional for correctness: without them every qubit scores
-    // the same and the root is the lowest id. So a failure here only warns.
+    // the same and the root is the lowest id. So a failed request only
+    // warns, and an entry we cannot read is skipped on its own (counted),
+    // instead of dropping every error rate.
+    ServerMessage props;
     try {
-      const ServerMessage props =
-          client.get(base + "/properties", "", headers, verifyTls);
-      const auto &qubits = props.at("qubits");
-      for (std::size_t q = 0; q < qubits.size() && q < chip.qubits.size(); ++q)
-        for (const auto &item : qubits[q]) {
-          const auto name = item.value("name", "");
-          if (name == "readout_error")
-            chip.qubits[q].readoutError = numberOf(item.at("value"));
-          else if (name == "operational")
-            chip.qubits[q].operational = numberOf(item.at("value")) != 0.0;
-        }
-      for (const auto &gate : props.at("gates")) {
-        if (gate.value("gate", "") != "cz" || gate.at("qubits").size() != 2)
-          continue;
-        auto it = linkIndex.find(
-            {gate["qubits"][0].get<int>(), gate["qubits"][1].get<int>()});
-        if (it == linkIndex.end())
-          continue;
-        auto &link = chip.links[it->second];
-        for (const auto &param : gate.value("parameters", nlohmann::json{})) {
-          const auto name = param.value("name", "");
-          if (name == "gate_error")
-            link.czError = numberOf(param.at("value"));
-          else if (name == "operational")
-            link.operational = numberOf(param.at("value")) != 0.0;
-        }
-      }
+      props = client.get(base + "/properties", "", headers, verifyTls);
     } catch (const std::exception &e) {
       CUDAQ_WARN("IBM: could not read /properties for {} ({}); choosing the "
                  "routing region without error rates.",
                  backend, e.what());
+      return chip;
     }
+    std::size_t skipped = 0;
+    if (props.contains("qubits") && props["qubits"].is_array()) {
+      const auto &qubits = props["qubits"];
+      for (std::size_t q = 0; q < qubits.size() && q < chip.qubits.size(); ++q)
+        for (const auto &item : qubits[q]) {
+          try {
+            const auto name = item.at("name").get<std::string>();
+            if (name == "readout_error")
+              chip.qubits[q].readoutError = numberOf(item.at("value"));
+            else if (name == "operational")
+              chip.qubits[q].operational = numberOf(item.at("value")) != 0.0;
+          } catch (const std::exception &) {
+            ++skipped;
+          }
+        }
+    }
+    if (props.contains("gates") && props["gates"].is_array())
+      for (const auto &gate : props["gates"]) {
+        try {
+          if (gate.at("gate").get<std::string>() != "cz" ||
+              gate.at("qubits").size() != 2)
+            continue;
+          auto it = linkIndex.find(
+              {gate["qubits"][0].get<int>(), gate["qubits"][1].get<int>()});
+          if (it == linkIndex.end())
+            continue;
+          // Read both values first, so a bad entry changes nothing.
+          ibm::ChipLink link = chip.links[it->second];
+          for (const auto &param : gate.value("parameters", nlohmann::json{})) {
+            const auto name = param.at("name").get<std::string>();
+            if (name == "gate_error")
+              link.czError = numberOf(param.at("value"));
+            else if (name == "operational")
+              link.operational = numberOf(param.at("value")) != 0.0;
+          }
+          chip.links[it->second] = link;
+        } catch (const std::exception &) {
+          ++skipped;
+        }
+      }
+    if (skipped)
+      CUDAQ_WARN("IBM: skipped {} unreadable entries in /properties for {}.",
+                 skipped, backend);
     return chip;
   }
 
-  // Write the device file to a fresh private temp file (mkstemp: no name
-  // races in /tmp). Reused path on later compiles, removed in the destructor.
+  // Write the device file. Each write goes to a fresh private temp file
+  // (mkstemp, written through its descriptor: no name races in /tmp), which
+  // then replaces the previous one in one rename, so CUDA-Q never reads a
+  // half-written file. Same path on every compile; removed in the destructor.
   void writeDeviceFile(const std::string &text) {
-    if (ownDeviceFile.empty()) {
-      std::string pattern =
-          (std::filesystem::temp_directory_path() / "cudaq-ibm-device-XXXXXX")
-              .string();
-      const int fd = mkstemp(pattern.data());
-      if (fd < 0)
-        throw std::runtime_error("IBM: cannot create the device file in " +
-                                 pattern);
-      close(fd);
-      ownDeviceFile = pattern;
+    std::string tmp =
+        (std::filesystem::temp_directory_path() / "cudaq-ibm-device-XXXXXX")
+            .string();
+    const int fd = mkstemp(tmp.data());
+    if (fd < 0)
+      throw std::runtime_error("IBM: cannot create the device file " + tmp);
+    std::size_t done = 0;
+    while (done < text.size()) {
+      const ssize_t n = ::write(fd, text.data() + done, text.size() - done);
+      if (n <= 0) {
+        close(fd);
+        std::remove(tmp.c_str());
+        throw std::runtime_error("IBM: cannot write the device file " + tmp);
+      }
+      done += static_cast<std::size_t>(n);
     }
-    std::ofstream out(ownDeviceFile, std::ios::trunc);
-    out << text;
-    if (!out)
-      throw std::runtime_error("IBM: cannot write the device file " +
+    close(fd);
+    if (ownDeviceFile.empty()) {
+      ownDeviceFile = tmp;
+      return;
+    }
+    if (std::rename(tmp.c_str(), ownDeviceFile.c_str()) != 0) {
+      std::remove(tmp.c_str());
+      throw std::runtime_error("IBM: cannot replace the device file " +
                                ownDeviceFile);
+    }
   }
 
 public:
@@ -295,8 +325,9 @@ public:
   const std::string name() const override { return "ibm"; }
 
   // M3. Called by CUDA-Q at every compile (decision 0009, D3): fetch the
-  // chip, number it breadth-first from a low-error root, and hand CUDA-Q
-  // the device file for `qubit-mapping{device=file(%QPU_ARCH%)}`.
+  // chip (kept 60 s, see `chip` above), number it breadth-first from a
+  // low-error root, and hand CUDA-Q the device file for
+  // `qubit-mapping{device=file(%QPU_ARCH%)}`.
   std::map<std::string, std::string>
   getPipelineSubstitutions(const std::filesystem::path &) override {
     std::string path;
@@ -314,15 +345,21 @@ public:
       for (std::size_t i = 0; i < layout.ibmId.size(); ++i)
         layout.ibmId[i] = static_cast<int>(i);
     } else {
-      const ibm::Chip chip = fetchChip();
-      const ibm::Region region = ibm::usableRegion(chip);
-      const int root = ibm::chooseRoot(region, chip);
+      const auto now = std::chrono::steady_clock::now();
+      if (cachedChip.qubits.empty() || chipBackend != backend ||
+          now - chipFetched > std::chrono::seconds(CHIP_CACHE_SECONDS)) {
+        cachedChip = fetchChip();
+        chipBackend = backend;
+        chipFetched = now;
+      }
+      const ibm::Region region = ibm::usableRegion(cachedChip);
+      const int root = ibm::chooseRoot(region, cachedChip);
       layout = ibm::breadthFirstLayout(region, root);
       writeDeviceFile(ibm::deviceFileText(layout.adj));
       path = ownDeviceFile;
       CUDAQ_INFO("IBM: {} of {} qubits usable on {}; numbering starts at "
                  "qubit {}",
-                 region.qubits.size(), chip.qubits.size(), backend, root);
+                 region.qubits.size(), cachedChip.qubits.size(), backend, root);
     }
     CUDAQ_INFO("IBM: device file for routing: {}", path);
     // Quoted like IQM does, to protect the path inside the pass option.
@@ -453,32 +490,24 @@ public:
     const auto &reg = data.begin().value();
     const auto &samples = reg.at("samples");
 
-    // Number of bits: prefer what CUDA-Q told us it measured; fall back on
-    // IBM's num_bits (§3.5), then on the widest sample.
-    std::size_t numBits = 0;
-    if (auto it = outputNames.find(jobId); it != outputNames.end())
-      numBits = it->second.size();
-    if (numBits == 0)
-      numBits = reg.value("num_bits", 0);
-    if (numBits == 0)
-      for (const auto &s : samples) {
-        auto v = std::stoull(s.get<std::string>(), nullptr, 16);
-        std::size_t width = 0;
-        while (width < 64 && (v >> width) != 0)
-          ++width;
-        numBits = std::max(numBits, width);
-      }
-    if (numBits == 0)
-      numBits = 1;
-    if (numBits > 64)
-      throw std::runtime_error("IBM: more than 64 measured bits not supported");
-
-    // No reorderIdx here, unlike IQM and OQC: their results come back in
-    // physical-qubit order, ours in classical-bit order, and CUDA-Q's QASM2
-    // already writes bit i for the user's i-th measured qubit [V] m3-spec.
-    CountsDictionary counts;
+    // Our circuit measures every qubit in allocation order (combine-
+    // measurements in ibm.yml.in), so c[i] is qubit i. Keep the qubits the
+    // user measured, as CUDA-Q's output_names lists them (ResultBits.h).
+    std::vector<std::string> hexSamples;
     for (const auto &s : samples)
-      ++counts[hexToCudaqBits(s.get<std::string>(), numBits)];
+      hexSamples.push_back(s.get<std::string>());
+    std::size_t numBits = reg.value("num_bits", 0);
+    if (numBits == 0)
+      numBits = ibm::widestSample(hexSamples);
+    std::vector<std::size_t> measured;
+    if (auto it = outputNames.find(jobId); it != outputNames.end())
+      for (const auto &[result, info] : it->second)
+        measured.push_back(info.qubitNum);
+    const auto keep = ibm::keptBits(measured, numBits);
+
+    CountsDictionary counts;
+    for (const auto &hex : hexSamples)
+      ++counts[ibm::pickBits(ibm::hexToBits(hex, numBits), keep)];
     return sample_result(ExecutionResult(counts));
   }
 };
