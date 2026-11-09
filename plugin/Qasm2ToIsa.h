@@ -25,6 +25,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cudaq::ibm {
@@ -135,7 +136,10 @@ struct IsaCircuit {
   int numClbits = 0; // one per measurement, in program order
 };
 
-inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
+/// `physical[k]` is the IBM qubit that label k (`var0[k]`) runs on; empty
+/// means label k runs on qubit k (M2 behaviour). M3 fills it from Layout.h.
+inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2,
+                                  const std::vector<int> &physical = {}) {
   // "name(args) operands;"  e.g. "rz(1.5e+00) var0[1];"  "cx var0[0], var0[1];"
   static const std::regex gateRe(
       R"(^\s*([a-z][a-z0-9_]*)\s*(?:\(([^)]*)\))?\s+([^;]*);\s*$)");
@@ -152,7 +156,12 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
   auto qubit = [&](const std::string &reg, int idx) {
     if (reg != qregName)
       throw std::runtime_error("ibm: unknown quantum register '" + reg + "'");
-    return idx; // M2: virtual qubit k runs on physical qubit k (M3 maps)
+    if (physical.empty())
+      return idx;
+    if (idx < 0 || idx >= static_cast<int>(physical.size()))
+      throw std::runtime_error("ibm: qubit label " + std::to_string(idx) +
+                               " has no physical qubit");
+    return physical[idx];
   };
 
   std::istringstream in(qasm2);
@@ -248,6 +257,44 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
     s += l + "\n";
   result.qasm3 = s;
   return result;
+}
+
+/// The qubit pairs of every 2-qubit gate (in labels), and the qreg size.
+/// Layout.h's assignQubits() needs these before the rewrite can pick
+/// physical qubits. Gates are not checked here; qasm2ToIsaQasm3 does that.
+struct Qasm2Interactions {
+  int numQubits = 0;
+  std::vector<std::pair<int, int>> pairs;
+};
+
+inline Qasm2Interactions qasm2Interactions(const std::string &qasm2) {
+  static const std::regex qregRe(
+      R"(^\s*qreg\s+[A-Za-z_][A-Za-z0-9_]*\[(\d+)\];)");
+  static const std::regex operandRe(R"([A-Za-z_][A-Za-z0-9_]*\[(\d+)\])");
+  Qasm2Interactions out;
+  std::istringstream in(qasm2);
+  std::string line;
+  while (std::getline(in, line)) {
+    std::smatch m;
+    if (std::regex_search(line, m, qregRe)) {
+      out.numQubits = std::stoi(m[1]);
+      continue;
+    }
+    auto first = line.find_first_not_of(" \t\r");
+    if (first == std::string::npos || line.compare(first, 2, "//") == 0 ||
+        line.compare(first, 4, "creg") == 0 ||
+        line.compare(first, 7, "measure") == 0 ||
+        line.compare(first, 7, "barrier") == 0)
+      continue;
+    std::vector<int> qs;
+    for (std::sregex_iterator it(line.begin(), line.end(), operandRe), end;
+         it != end; ++it)
+      qs.push_back(std::stoi((*it)[1]));
+    for (std::size_t i = 0; i < qs.size(); ++i)
+      for (std::size_t j = i + 1; j < qs.size(); ++j)
+        out.pairs.emplace_back(qs[i], qs[j]);
+  }
+  return out;
 }
 
 } // namespace cudaq::ibm

@@ -23,3 +23,11 @@ jobs:
       - uses: actions/checkout@v4
       - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_qasm2_to_isa.cpp -o test_isa
       - run: ./test_isa
+  layout:
+    # C++ unit tests for plugin/Layout.h (M3 routing). Pure functions; reads
+    # the ibm_fez wiring from tests/data, so it runs from the repo root.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_layout.cpp -o test_layout
+      - run: ./test_layout

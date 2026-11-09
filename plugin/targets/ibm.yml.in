@@ -17,11 +17,16 @@ config:
   gen-target-backend: true
   preprocessor-defines: ["-D CUDAQ_QUANTUM_DEVICE"]
   link-libs: ["-lcudaq-rest-qpu"]
-  # CUDA-Q decomposes every kernel into a small textbook gate set and prints
-  # it as OpenQASM 2. IBMServerHelper then rewrites those gates into IBM's
-  # native {rz, sx, x, cz} (see Qasm2ToIsa.h). Same pattern as infleqtion.yml.
+  # CUDA-Q decomposes every kernel into a small textbook gate set, routes it
+  # on the chip's wiring (qubit-mapping; IBMServerHelper writes the device
+  # file and fills %QPU_ARCH%, see Layout.h), and prints it as OpenQASM 2.
+  # IBMServerHelper then picks IBM qubits for the labels and rewrites the
+  # gates into IBM's native {rz, sx, x, cz} (see Qasm2ToIsa.h). The routing
+  # part follows iqm.yml, plus placement=auto search=sabre (far fewer swaps
+  # than the default identity start: GHZ-20 on ibm_fez needs 28 cz instead
+  # of 151). Checked with pip cudaq 0.16.0 (experiments/m3_routing.py).
   jit-high-level-pipeline: "expand-measurements"
-  jit-mid-level-pipeline: "decomposition{basis=h,rx,ry,rz,x,z,x(1)},quake-to-cc-prep,func.func(memtoreg{quantum=0})"
+  jit-mid-level-pipeline: "func.func(erase-implicit-output),decomposition{basis=h,rx,ry,rz,x,z,x(1)},func.func(add-dealloc,combine-quantum-alloc,canonicalize,factor-quantum-alloc,dqe,cse,memtoreg),add-wireset,func.func(assign-wire-indices),qubit-mapping{device=file(%QPU_ARCH%) placement=auto search=sabre},func.func(delay-measurements),lower-to-cfg,func.func(regtomem),quake-to-cc-prep,func.func(memtoreg{quantum=0})"
   codegen-emission: qasm2
   library-mode: false
 
@@ -41,3 +46,8 @@ target-arguments:
     type: string
     platform-arg: iam_url
     help-string: "IBM Cloud IAM token URL (default https://iam.cloud.ibm.com/identity/token). Override only for testing."
+  - key: mapping_file
+    required: false
+    type: string
+    platform-arg: mapping_file
+    help-string: "Device file to route on instead of fetching the chip (testing). Node ids must be IBM qubit ids."
