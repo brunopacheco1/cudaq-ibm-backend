@@ -73,11 +73,19 @@ print(cudaq.__file__)"` must print a path under `/work/cuda-quantum/build/python
 ```bash
 podman machine start
 podman start cudaq-ibm
-podman exec -it cudaq-ibm bash
+podman exec -it -e HOME=/root -w /work/cuda-quantum cudaq-ibm bash
 podman stop cudaq-ibm
 ```
 
-Run `podman exec` again for each extra shell. If you ever need to recreate
+Always pass `-e HOME=/root`. **[V]** Without it, `podman exec` starts bash with `HOME=/home`
+(checked 2026-11-09), so bash never reads `/root/.bashrc`, `PYTHONPATH` stays empty and
+`import cudaq` fails. A shell alias on the Mac saves typing (add it to `~/.zshrc`):
+
+```bash
+alias cq='podman exec -it -e HOME=/root -w /work/cuda-quantum cudaq-ibm bash'
+```
+
+Run `podman exec` (or `cq`) again for each extra shell. If you ever need to recreate
 the container (`podman rm cudaq-ibm`, then the `podman run` from step 2), the
 CUDA-Q build in the volume is kept. Only the `.bashrc` lines and apt packages
 must be redone.

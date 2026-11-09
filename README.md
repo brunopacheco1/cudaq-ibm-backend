@@ -11,8 +11,8 @@ quantum ideas behind each step.
 > 2026-11-05: 95% of 1000 shots were correlated, as expected. Phase 2, the
 > C++ CUDA-Q plugin, is in progress. M1 (IBM login, job submit, poll and
 > results) works against a fake IBM server. M2 (rewriting circuits into IBM's
-> native gates) has a proven rule for every gate in the compile basis, plus
-> `y` and `u3`. The first run on real hardware is next. Expect breaking changes.
+> native gates) is done: on 2026-11-09 the plugin ran a Bell pair on `ibm_fez`
+> with 94% of 1000 shots correlated. Routing (M3) is next. Expect breaking changes.
 
 ## Quick start
 
