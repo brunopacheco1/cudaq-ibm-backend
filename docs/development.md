@@ -115,8 +115,9 @@ cd /work/cuda-quantum
 python3 /src/cudaq-ibm-backend/tests/run_fake_ibm.py
 ```
 
-The expected output ends with `OK: ISA rewrite, auth, submit, poll and
-bit-order decoding all work.` Add `CUDAQ_LOG_LEVEL=info` to see the ISA
+It runs two kernels: a Bell pair, then one with `rx`, `ry`, `z`, `y`, `s`, `t` and `u3`.
+The expected output ends with `OK: rx, ry, z, y, s, t, u3 rewrite into ISA gates the server
+accepts.` Add `CUDAQ_LOG_LEVEL=info` to see the ISA
 circuit the plugin sends.
 
 The gate-rewrite unit test needs no CUDA-Q and also runs in CI:

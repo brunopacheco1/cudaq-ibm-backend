@@ -20,8 +20,8 @@ rough, for part-time work. Each milestone is shippable.
 
 ## 2. Next steps
 
-1. Add a fake-server kernel that uses `rx`, `ry`, `z`, so the new rules are checked end to end
-   on the QASM2 text CUDA-Q really emits (the Bell pair only uses h, cx).
+1. Run `tests/run_fake_ibm.py`. Its second kernel (`rx`, `ry`, `z`, `y`, `s`, `t`, `u3`) checks
+   the rules end to end on the QASM2 text CUDA-Q really emits (the Bell pair only uses h, cx).
 2. Start M3 (routing): write `docs/m3-spec.md`.
 
 ## 3. Open risks
