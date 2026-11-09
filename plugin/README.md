@@ -3,7 +3,7 @@
 The C++ part of this project: a CUDA-Q backend plugin that runs kernels on IBM Quantum.
 It started as a copy of CUDA-Q's `mock_rest` example plugin (see `../NOTICE`).
 
-Status: M1 done (IBM login, submit, poll, results), M2 in progress (gate rewrite).
+Status: M1 done (IBM login, submit, poll, results), M2 done (gate rewrite, first `ibm_fez` run). M3 (routing) next.
 How it works: [../docs/architecture.md](../docs/architecture.md).
 
 ## Files

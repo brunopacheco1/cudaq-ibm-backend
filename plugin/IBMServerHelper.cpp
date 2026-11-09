@@ -304,7 +304,7 @@ public:
     const auto &samples = reg.at("samples");
 
     // Number of bits: prefer what CUDA-Q told us it measured; fall back on
-    // IBM's num_bits (unverified field), then on the widest sample.
+    // IBM's num_bits (§3.5), then on the widest sample.
     std::size_t numBits = 0;
     if (auto it = outputNames.find(jobId); it != outputNames.end())
       numBits = it->second.size();

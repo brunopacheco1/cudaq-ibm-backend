@@ -71,9 +71,9 @@ and our own `RestClient` calls pass `enableSsl = true`. Upstream fixes: [upstrea
 (`scripts/install_prerequisites.sh` at `0.16.0`), so libcurl has **no certificate store**.
 `RestClient` picks one in its constructor: `CURL_CA_BUNDLE` if that file exists, else
 `cacert.pem` two levels above the `cudaq-common` library, else none. With none, every call
-with checks on fails with "SSL peer certificate or SSH remote key was not OK". Seen on the
-first `ibm_fez` run in the dev container (2026-11-09). Calls with checks off (the Executor's job
-POST) still work, which hides the problem.
+with checks on fails with "SSL peer certificate or SSH remote key was not OK". Our IAM call
+used to set a bundle only from `CURL_CA_BUNDLE`, so the first `ibm_fez` run failed at login
+(2026-11-09), although the dev container has `/work/cuda-quantum/build/cacert.pem`.
 
 So `initialize` finds a bundle in that same order, then tries `/etc/ssl/certs/ca-certificates.crt`,
 `/etc/pki/tls/certs/ca-bundle.crt` and `/etc/ssl/cert.pem`. It throws if none exists and never
@@ -124,7 +124,8 @@ Content-Type:  application/json
 - One hex string per shot. Bit 0 is the **right-most** bit (little-endian). CUDA-Q puts qubit
   0 **left-most**, so we reverse: `"0x1"` on 2 bits -> `"01"` -> `"10"` in CUDA-Q.
 - Register size: from the circuit we sent (`outputNames` for the job); fallbacks: `num_bits`
-  in the response, then the widest sample. Whether IBM sends `num_bits` is **[U]**.
+  in the response, then the widest sample. **[V]** IBM sends `num_bits` (2 for a Bell pair on
+  `ibm_fez`, 2026-11-09).
 
 ## 4. IBMServerHelper, method by method
 
