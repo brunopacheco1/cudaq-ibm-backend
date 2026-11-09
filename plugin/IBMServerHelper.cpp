@@ -22,6 +22,7 @@
 #include "common/ServerHelper.h"
 #include "nlohmann/json.hpp"
 #include "cudaq/runtime/logger/logger.h"
+#include "cudaq/utils/cudaq_utils.h"
 
 #include <curl/curl.h>
 
@@ -29,8 +30,10 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace cudaq {
 
@@ -56,8 +59,8 @@ class IBMServerHelper : public ServerHelper {
   std::string token;
   std::chrono::system_clock::time_point tokenExpires{};
 
-  // Used for the extra GET /jobs/{id}/results in processResults.
-  RestClient client;
+  // CA bundle used to verify IBM's TLS certificates (§2.3).
+  std::string caBundle;
 
   // ---- Small helpers -------------------------------------------------------
   static std::string valueOr(const BackendConfig &config,
@@ -89,6 +92,28 @@ class IBMServerHelper : public ServerHelper {
     return size * count;
   }
 
+  // ---- CA bundle (§2.3) ---------------------------------------------------
+  // CUDA-Q builds libcurl with no default CA store, so our own libcurl call
+  // must name a bundle. Same lookup as RestClient's constructor (0.16.0), so
+  // the IAM login and RestClient always trust the same certificates. Never
+  // falls back to turning verification off.
+  static std::string findCaBundle() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (const char *env = std::getenv("CURL_CA_BUNDLE");
+        env && *env && fs::exists(env, ec))
+      return env;
+    const fs::path cudaqLib{cudaq::getCUDAQLibraryPath()};
+    const fs::path bundled =
+        cudaqLib.parent_path().parent_path() / "cacert.pem";
+    if (fs::exists(bundled, ec))
+      return bundled.string();
+    throw std::runtime_error(
+        "IBM: no CA bundle found to verify TLS. Set CURL_CA_BUNDLE to a PEM "
+        "file, for example /etc/ssl/certs/ca-certificates.crt or one from "
+        "https://curl.se/ca/cacert.pem.");
+  }
+
   // ---- IAM login (§3.1) ----------------------------------------------------
   // RestClient::post can only send JSON and logs the body (which would
   // contain the API key), so this one request uses libcurl directly (§2.2).
@@ -116,10 +141,8 @@ class IBMServerHelper : public ServerHelper {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, appendToString);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    // libcurl verifies TLS certificates by default. Honour the same CA
-    // bundle variable CUDA-Q's RestClient uses.
-    if (const char *caBundle = std::getenv("CURL_CA_BUNDLE"))
-      curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle);
+    // libcurl verifies TLS by default, but has no CA store of its own (§2.3).
+    curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle.c_str());
 
     const CURLcode rc = curl_easy_perform(curl);
     long status = 0;
@@ -178,6 +201,9 @@ public:
     iamUrl = valueOr(config, "iam_url", DEFAULT_IAM_URL);
     apiKey = requiredEnv("IBM_QUANTUM_API_KEY");
     crn = requiredEnv("IBM_QUANTUM_CRN");
+
+    caBundle = findCaBundle();
+    CUDAQ_INFO("IBM: verifying TLS with CA bundle {}", caBundle);
 
     if (auto it = config.find("shots");
         it != config.end() && !it->second.empty())
@@ -256,6 +282,7 @@ public:
                                std::string &jobId) override {
     auto headers = getHeaders();
     const bool verifyTls = true; // RestClient's default is false (§2.2)
+    RestClient client;
     ServerMessage results = client.get(baseUrl + "/jobs/" + jobId + "/results",
                                        "", headers, verifyTls);
     CUDAQ_INFO("IBM: results for job {}: {}", jobId, results.dump());
@@ -270,7 +297,7 @@ public:
     const auto &samples = reg.at("samples");
 
     // Number of bits: prefer what CUDA-Q told us it measured; fall back on
-    // IBM's num_bits (unverified field), then on the widest sample.
+    // IBM's num_bits (§3.5), then on the widest sample.
     std::size_t numBits = 0;
     if (auto it = outputNames.find(jobId); it != outputNames.end())
       numBits = it->second.size();

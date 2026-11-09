@@ -65,6 +65,27 @@ dev container ([development.md](development.md)).
 So the IAM login uses libcurl directly ([decision 0005](decisions/0005-iam-login-with-libcurl.md)),
 and our own `RestClient` calls pass `enableSsl = true`. Upstream fixes: [upstream.md](upstream.md) #2, #3.
 
+### 2.3 TLS needs a CA bundle
+
+**[V]** CUDA-Q builds its own libcurl with `-DCURL_CA_BUNDLE=none -DCURL_CA_PATH=none`
+(`scripts/install_prerequisites.sh` at `0.16.0`), so libcurl has **no certificate store**.
+`RestClient` picks one in its constructor: `CURL_CA_BUNDLE` if that file exists, else
+`cacert.pem` two levels above the `cudaq-common` library, else none. With none, every call
+with checks on fails with "SSL peer certificate or SSH remote key was not OK". Our IAM call
+used to set a bundle only from `CURL_CA_BUNDLE`, so the first `ibm_fez` run failed at login
+(2026-11-09), although the dev container has `/work/cuda-quantum/build/cacert.pem`.
+
+So `initialize` finds a bundle **the same way `RestClient` does** (`CURL_CA_BUNDLE` if the file
+exists, else CUDA-Q's `cacert.pem`) and passes it to the IAM call with `CURLOPT_CAINFO`. Login and
+`RestClient` therefore trust the same certificates. If there is none, it throws and asks for
+`CURL_CA_BUNDLE`; it never turns checks off.
+
+**[V]** How CUDA-Q's own helpers do HTTPS (0.16.0 source): all of them use `RestClient`; none calls
+libcurl directly or picks a CA bundle itself. Most keep checks off (`enableSsl = false`): IonQ
+and OQC results, IQM, all Quantinuum calls, Anyon and Fermioniq login, and the `Future`
+polling. A few turn them on: qBraid, OQC `/admin/qpu`, Scaleway (when `secure`). Quantinuum's
+login passes `enableLogging = false` to keep secrets out of the log.
+
 ## 3. IBM REST API
 
 Source **[V]** `src/cudaq_ibm/client.py` and `results.py`, which ran on `ibm_fez`.
@@ -109,7 +130,8 @@ Content-Type:  application/json
 - One hex string per shot. Bit 0 is the **right-most** bit (little-endian). CUDA-Q puts qubit
   0 **left-most**, so we reverse: `"0x1"` on 2 bits -> `"01"` -> `"10"` in CUDA-Q.
 - Register size: from the circuit we sent (`outputNames` for the job); fallbacks: `num_bits`
-  in the response, then the widest sample. Whether IBM sends `num_bits` is **[U]**.
+  in the response, then the widest sample. **[V]** IBM sends `num_bits` (2 for a Bell pair on
+  `ibm_fez`, 2026-11-09).
 
 ## 4. IBMServerHelper, method by method
 
