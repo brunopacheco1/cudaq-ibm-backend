@@ -143,4 +143,4 @@ Source **[V]** `runtime/common/RestClient.cpp`.
    HTTP 401 surfaces a clear error. The code paths exist; add tests that drive them through
    the fake server.
 
-How to run all of this: README section "Develop the C++ plugin (Linux container)", step 4.
+How to run all of this: [development.md](../development.md) §4.

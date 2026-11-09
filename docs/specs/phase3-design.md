@@ -6,6 +6,8 @@ Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified.
 File references like `runtime/common/ServerHelper.h:44` are in the CUDA-Q `0.16.0` tag.
 Detailed spec for M1: [m1-spec.md](m1-spec.md).
+This is the options analysis and plan. For how the code works now, see
+[architecture.md](../architecture.md); the choice itself is [decision 0001](../decisions/0001-cudaq-routes-helper-rewrites-gates.md).
 
 Review notes (2026-11-06): the `h` and ZSX gate identities were checked numerically with Qiskit
 (both equal up to global phase); the `regtomem` renumbering was reproduced; the 2026-02-01
@@ -77,8 +79,8 @@ packaged as a wheel (M4).
 **Where we build (updated 2026-11-08).** The native macOS build, documented in `Building.md`
 "Building on macOS", **failed** on Bruno's Mac: LLVM 22 `lld` cannot read the Xcode 27 SDK
 (`arm64e.x1` architecture) **[V]** build log. We build instead in NVIDIA's Linux dev container,
-run with Podman on Apple Silicon and pinned by digest. Steps: README section "Develop the C++
-plugin (Linux container)".
+run with Podman on Apple Silicon and pinned by digest. Steps: [development.md](../development.md); reasons:
+[decision 0002](../decisions/0002-build-in-linux-dev-container.md).
 
 **ABI check.** **[U]** Whether a plugin built against the source tree loads cleanly into a
 pip-installed `cudaq` depends on an ABI match (same compiler, same `nlohmann::json`, same
