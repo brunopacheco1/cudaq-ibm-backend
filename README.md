@@ -114,7 +114,7 @@ IBM, and a fake chip (`FakeFez`) stands in for the hardware.
    a `ServerHelper` subclass, a `targets/ibm.yml` file and CMake, installed with
    pip. Then `cudaq.set_target("ibm")` works like any other provider. The
    milestones (M0-M5) and their status are in
-   [docs/specs/phase3-design.md](docs/specs/phase3-design.md) §5. To build it, see
+   [docs/roadmap.md](docs/roadmap.md). To build it, see
    [docs/development.md](docs/development.md).
 3. **Docs, a blog post**, and a conversation with the CUDA-Q maintainers.
 

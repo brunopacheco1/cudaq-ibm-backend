@@ -7,7 +7,7 @@ File references like `runtime/common/Future.cpp` are in the CUDA-Q `0.16.0` tag.
 
 This page describes the code as it is now. The reasons behind it are in
 [decisions/](decisions/), and the original options analysis is in
-[specs/phase3-design.md](specs/phase3-design.md).
+[research/2026-11-06-phase3-design.md](research/2026-11-06-phase3-design.md). Milestones and open risks: [roadmap.md](roadmap.md).
 
 ## 1. The big picture
 
@@ -65,7 +65,7 @@ IBM only runs ISA circuits: native gates on physically connected qubits **[V]**
 https://quantum.cloud.ibm.com/docs/guides/transpile. On `ibm_fez` the native gates are
 `rz`, `sx`, `x`, `cz`; `rz` is virtual (free, done in software).
 
-CUDA-Q cannot decompose into that basis **[V]** (specs/phase3-design.md §3), so the YAML asks
+CUDA-Q cannot decompose into that basis **[V]** ([research note](research/2026-11-06-phase3-design.md) §3), so the YAML asks
 for a small textbook basis and `Qasm2ToIsa.h` rewrites each gate with a fixed identity:
 
 | Gate | Rewrite | Status |

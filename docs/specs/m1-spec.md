@@ -5,7 +5,7 @@ Status: implemented 2026-11-08 (PR #1). The Bell pair runs end to end against th
 Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified.
 File references like `runtime/common/Future.cpp` are in the CUDA-Q `0.16.0` tag.
-Parent design: [phase3-design.md](phase3-design.md) (milestone M1 in §5).
+Milestone M1 in [roadmap.md](../roadmap.md); design background in [research/2026-11-06-phase3-design.md](../research/2026-11-06-phase3-design.md).
 Section numbers are cited by code comments in `plugin/IBMServerHelper.cpp`; keep them stable.
 
 ## Summary
@@ -29,7 +29,7 @@ The order of calls **[V]** `runtime/common/Executor.cpp`, `runtime/common/Future
 3. CUDA-Q POSTs **each** `jobBody` to `postUrl` with `headers`.
 4. `extractJobId(postResponse)` returns the job id.
 5. `getHeaders()` is called **once**, then reused for the whole poll loop. So a token can
-   expire during a long queue wait. Limit accepted for v1 (phase3-design §6, risk 7).
+   expire during a long queue wait. Limit accepted for v1 ([decision 0004](../decisions/0004-accept-token-expiry-in-v1.md)).
 6. Loop: GET `constructGetJobPath(jobId)` until `jobIsDone(response)` is true, sleeping
    `nextResultPollingInterval()` between GETs.
 7. `processResults(lastJobResponse, jobId)` returns `sample_result`.

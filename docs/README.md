@@ -9,7 +9,9 @@ to work on it.
 | [architecture.md](architecture.md) | How does the C++ plugin work today? | Living: update with the code |
 | [development.md](development.md) | How do I build and test it? (Linux dev container) | Living |
 | [decisions/](decisions/) | Why is it built this way? | Records: one per decision, never rewritten |
+| [roadmap.md](roadmap.md) | Where are we, what is next, what could go wrong? | Living |
 | [specs/](specs/) | What exactly must a milestone do? | Per milestone; marked done when done |
+| [research/](research/) | What did we find before deciding? | Dated notes, frozen; evidence for decisions |
 | [upstream.md](upstream.md) | What should be fixed in CUDA-Q itself? | Living list |
 
 ## Conventions
@@ -51,5 +53,10 @@ one "superseded by NNNN".
 
 | Spec | Milestone | Status |
 |---|---|---|
-| [phase3-design.md](specs/phase3-design.md) | Options analysis and milestone plan M0-M5 | Accepted |
 | [m1-spec.md](specs/m1-spec.md) | M1: talk to IBM's REST API | Implemented (PR #1) |
+
+## Research notes
+
+| Note | Content | Supports |
+|---|---|---|
+| [2026-11-06-phase3-design.md](research/2026-11-06-phase3-design.md) | Options analysis for the C++ plugin (ISA problem, CUDA-Q gaps, QRMI, testing) | [0001](decisions/0001-cudaq-routes-helper-rewrites-gates.md) |
