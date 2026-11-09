@@ -22,6 +22,7 @@
 #include "common/ServerHelper.h"
 #include "nlohmann/json.hpp"
 #include "cudaq/runtime/logger/logger.h"
+#include "cudaq/utils/cudaq_utils.h"
 
 #include <curl/curl.h>
 
@@ -29,8 +30,10 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace cudaq {
 
@@ -56,8 +59,8 @@ class IBMServerHelper : public ServerHelper {
   std::string token;
   std::chrono::system_clock::time_point tokenExpires{};
 
-  // Used for the extra GET /jobs/{id}/results in processResults.
-  RestClient client;
+  // CA bundle used to verify IBM's TLS certificates (§2.3).
+  std::string caBundle;
 
   // ---- Small helpers -------------------------------------------------------
   static std::string valueOr(const BackendConfig &config,
@@ -89,6 +92,32 @@ class IBMServerHelper : public ServerHelper {
     return size * count;
   }
 
+  // ---- CA bundle (§2.3) ---------------------------------------------------
+  // CUDA-Q builds libcurl with no default CA store, so a caller that verifies
+  // TLS must name a bundle. Same order as RestClient, plus the usual system
+  // locations. Never falls back to turning verification off.
+  static std::string findCaBundle() {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> candidates;
+    if (const char *env = std::getenv("CURL_CA_BUNDLE"); env && *env)
+      candidates.emplace_back(env);
+    const fs::path cudaqLib{cudaq::getCUDAQLibraryPath()};
+    candidates.push_back(cudaqLib.parent_path().parent_path() / "cacert.pem");
+    for (const char *p :
+         {"/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu
+          "/etc/pki/tls/certs/ca-bundle.crt",   // RHEL, Fedora
+          "/etc/ssl/cert.pem"})                 // macOS, Alpine
+      candidates.emplace_back(p);
+    for (const auto &c : candidates) {
+      std::error_code ec;
+      if (fs::is_regular_file(c, ec))
+        return c.string();
+    }
+    throw std::runtime_error(
+        "IBM: no CA bundle found to verify TLS. Set CURL_CA_BUNDLE to a PEM "
+        "file, for example one from https://curl.se/ca/cacert.pem.");
+  }
+
   // ---- IAM login (§3.1) ----------------------------------------------------
   // RestClient::post can only send JSON and logs the body (which would
   // contain the API key), so this one request uses libcurl directly (§2.2).
@@ -116,10 +145,8 @@ class IBMServerHelper : public ServerHelper {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, appendToString);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    // libcurl verifies TLS certificates by default. Honour the same CA
-    // bundle variable CUDA-Q's RestClient uses.
-    if (const char *caBundle = std::getenv("CURL_CA_BUNDLE"))
-      curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle);
+    // libcurl verifies TLS by default, but has no CA store of its own (§2.3).
+    curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle.c_str());
 
     const CURLcode rc = curl_easy_perform(curl);
     long status = 0;
@@ -178,6 +205,12 @@ public:
     iamUrl = valueOr(config, "iam_url", DEFAULT_IAM_URL);
     apiKey = requiredEnv("IBM_QUANTUM_API_KEY");
     crn = requiredEnv("IBM_QUANTUM_CRN");
+
+    // RestClient reads CURL_CA_BUNDLE when it is constructed, so exporting the
+    // bundle we found also makes its TLS checks work (§2.3).
+    caBundle = findCaBundle();
+    setenv("CURL_CA_BUNDLE", caBundle.c_str(), /*overwrite=*/1);
+    CUDAQ_INFO("IBM: verifying TLS with CA bundle {}", caBundle);
 
     if (auto it = config.find("shots");
         it != config.end() && !it->second.empty())
@@ -256,6 +289,7 @@ public:
                                std::string &jobId) override {
     auto headers = getHeaders();
     const bool verifyTls = true; // RestClient's default is false (§2.2)
+    RestClient client;           // built now, so it sees CURL_CA_BUNDLE (§2.3)
     ServerMessage results = client.get(baseUrl + "/jobs/" + jobId + "/results",
                                        "", headers, verifyTls);
     CUDAQ_INFO("IBM: results for job {}: {}", jobId, results.dump());

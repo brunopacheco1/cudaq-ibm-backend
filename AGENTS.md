@@ -49,7 +49,8 @@ When you add a rewrite rule (after Bruno has derived it), add a case to `kRuleCa
   (or a git-ignored `.env`). Never put them in target arguments, logs, commits, chat or
   memory. The API key must never pass through `RestClient` (it logs bodies at INFO).
 - **TLS.** CUDA-Q's `RestClient` turns certificate checks off by default. Calls we make
-  ourselves must verify TLS.
+  ourselves must verify TLS. CUDA-Q's libcurl has no default CA store, so name a bundle
+  ([docs/architecture.md](docs/architecture.md) §2.3).
 - **Facts.** Tag claims in docs **[V]** verified (with source) or **[U]** unverified. Check
   CUDA-Q behaviour against the `0.16.0` tag source, not memory.
 - **Docs.** Follow the conventions in [docs/README.md](docs/README.md). Update

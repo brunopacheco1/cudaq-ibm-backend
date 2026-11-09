@@ -65,6 +65,21 @@ dev container ([development.md](development.md)).
 So the IAM login uses libcurl directly ([decision 0005](decisions/0005-iam-login-with-libcurl.md)),
 and our own `RestClient` calls pass `enableSsl = true`. Upstream fixes: [upstream.md](upstream.md) #2, #3.
 
+### 2.3 TLS needs a CA bundle
+
+**[V]** CUDA-Q builds its own libcurl with `-DCURL_CA_BUNDLE=none -DCURL_CA_PATH=none`
+(`scripts/install_prerequisites.sh` at `0.16.0`), so libcurl has **no certificate store**.
+`RestClient` picks one in its constructor: `CURL_CA_BUNDLE` if that file exists, else
+`cacert.pem` two levels above the `cudaq-common` library, else none. With none, every call
+with checks on fails with "SSL peer certificate or SSH remote key was not OK". Seen on the
+first `ibm_fez` run in the dev container (2026-11-09). Calls with checks off (the Executor's job
+POST) still work, which hides the problem.
+
+So `initialize` finds a bundle in that same order, then tries `/etc/ssl/certs/ca-certificates.crt`,
+`/etc/pki/tls/certs/ca-bundle.crt` and `/etc/ssl/cert.pem`. It throws if none exists and never
+turns checks off. It passes the bundle to the IAM call (`CURLOPT_CAINFO`) and exports it as
+`CURL_CA_BUNDLE`, so the `RestClient` that `processResults` builds afterwards uses it too.
+
 ## 3. IBM REST API
 
 Source **[V]** `src/cudaq_ibm/client.py` and `results.py`, which ran on `ibm_fez`.
