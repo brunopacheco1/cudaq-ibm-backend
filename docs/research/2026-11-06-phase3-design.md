@@ -1,13 +1,14 @@
 # Phase 3 design: a C++ CUDA-Q backend plugin for IBM Quantum
 
-Date: 2026-11-06, updated 2026-11-09.
-Status: accepted. Bruno chose Option A (§3) on 2026-11-06. M0 and M1 are done, M2 is in progress (§5).
+Date: 2026-11-06, last updated 2026-11-09. Status: research note, frozen. Bruno chose Option A (§3) on 2026-11-06.
 Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified.
 File references like `runtime/common/ServerHelper.h:44` are in the CUDA-Q `0.16.0` tag.
-Detailed spec for M1: [m1-spec.md](m1-spec.md).
-This is the options analysis and plan. For how the code works now, see
-[architecture.md](../architecture.md); the choice itself is [decision 0001](../decisions/0001-cudaq-routes-helper-rewrites-gates.md).
+
+This is the options analysis behind [decision 0001](../decisions/0001-cudaq-routes-helper-rewrites-gates.md).
+It is kept as evidence and not updated any more. For the current state, see
+[architecture.md](../architecture.md) (how the code works) and [roadmap.md](../roadmap.md)
+(milestones, open risks).
 
 Review notes (2026-11-06): the `h` and ZSX gate identities were checked numerically with Qiskit
 (both equal up to global phase); the `regtomem` renumbering was reproduced; the 2026-02-01
@@ -172,7 +173,7 @@ Changes from the 2026-11-06 sketch:
 
 - No separate `IamToken` class. The IAM call and token cache live as private members of
   `IBMServerHelper`. IAM uses libcurl directly because `RestClient::post` cannot send a form
-  body (m1-spec §4).
+  body ([m1-spec](../specs/m1-spec.md) §4).
 - The converter is one header, `Qasm2ToIsa.h`, so the unit test compiles with plain `g++`
   and no CUDA-Q.
 - The fake server lives in the top-level `tests/` (Python), not under `plugin/tests/`.
@@ -224,18 +225,9 @@ check accepts both `$k` physical qubits and a `qubit[156] q;` declaration **[V]*
 
 ## 5. Milestones
 
-Effort is rough, for part-time work. Each milestone is shippable.
+Moved to [roadmap.md](../roadmap.md), which tracks their status.
 
-| # | Deliverable | Effort | Done when | Status (2026-11-09) |
-|---|---|---|---|---|
-| M0 | Dev environment: CUDA-Q 0.16.0 source build in NVIDIA's dev container; build and run the `mock_rest` reference plugin | 1-2 days | `mock_rest` sample runs end to end | **Done** 2026-11-08 (Podman, see §2). The ABI check moved to M4. |
-| M1 | `ibm` plugin: YAML (no mapping yet), IAM auth, job POST/poll/results, hex decoding; fake IBM server | 2-3 days | Bell pair end to end against the fake server | **Done** 2026-11-08, PR #1. Result `{ 01:1 10:2 }`. Spec: [m1-spec.md](m1-spec.md). |
-| M2 | `qasm2ToIsaQasm3` gate rewrite with unit tests; first real Bell pair on `ibm_fez` qubits 0-1 | 3-5 days | Hardware counts match the Python prototype | **In progress.** h, cx proven and merged (PR #2). Open: z, y, rx, ry, u3 rules; first hardware run. |
-| M3 | Routing: fetch configuration, prune/relabel, topology file, `qubit-mapping` in YAML, `reorderIdx`; fake server checks 2-qubit gates against the real coupling map | 3-5 days | 5-qubit GHZ on hardware; 20-qubit GHZ accepted by the fake server | Not started |
-| M4 | Packaging: wheels (Linux x86_64, aarch64), ABI check against pip `cudaq`, `--install-nvqpp`, README, CI (build in dev container, run fake-server tests) | 2-3 days | `pip install` then `cudaq.set_target("ibm")` works | Not started. CI already runs the Python tests and the ISA unit test. |
-| M5 | Optional: `transport=qrmi` using the bundled `libqrmi`; upstream PRs (token refresh in `Future.cpp`, `RestClient` TLS default, native IBM basis patterns, `mapping_v2p` export, fake IBM server) | 1-2 weeks | PRs opened with DCO sign-off | Not started |
-
-## 6. Risks and open questions
+## 6. Risks and open questions (snapshot 2026-11-09; live list in [roadmap.md](../roadmap.md))
 
 1. **Physical-id compaction** (§3) **[V]**. Mitigated by relabelling; fixed only upstream. If a run ever shows non-contiguous placement, the circuit would silently use wrong qubits. Add a fake-server check that every 2-qubit gate is on an edge of the *real* coupling map (`is_isa_circuit` does exactly this).
 2. **Routing quality** **[V]** 23 swaps for GHZ-20. Fine for learning; a noise-aware layout (Option B's first piece) is the obvious follow-up.

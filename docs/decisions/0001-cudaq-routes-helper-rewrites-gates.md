@@ -7,7 +7,7 @@ Date: 2026-11-06. Status: accepted. Decided by: Bruno.
 IBM only accepts ISA circuits (native gates `{rz, sx, x, cz}` on connected qubits). IBM's
 server-side transpilation is gone, and its transpiler service is Premium-only. CUDA-Q 0.16
 can route on a topology file, but cannot decompose to IBM's basis and renumbers physical
-qubits **[V]** experiments in [specs/phase3-design.md](../specs/phase3-design.md) §3.
+qubits **[V]** experiments in [research/2026-11-06-phase3-design.md](../research/2026-11-06-phase3-design.md) §3.
 
 ## Options
 

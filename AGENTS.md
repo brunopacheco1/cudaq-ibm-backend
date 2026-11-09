@@ -13,7 +13,7 @@ Bruno. Two parts:
 - `plugin/`: the C++ CUDA-Q plugin (`ServerHelper` + target YAML). Work in progress.
 
 Start with [docs/architecture.md](docs/architecture.md) (how it works now) and
-[docs/decisions/](docs/decisions/) (why).
+[docs/decisions/](docs/decisions/) (why). Status and next steps: [docs/roadmap.md](docs/roadmap.md).
 
 ## Division of work
 
