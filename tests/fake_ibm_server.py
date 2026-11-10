@@ -54,11 +54,16 @@ N_QUBITS, LINKS = load_chip()
 # - qubit 56 is marked not operational;
 # - link 60-61 has a gate_error the plugin cannot read (null) in one
 #   direction: the plugin must treat it as broken (decision 0009, item 3).
-# The plugin must route around all three; check_isa rejects a cz on them.
+# - qubit 84 has an sx error of 1: IBM reports that when the benchmark of a
+#   gate failed for days ("undefined, proceed with caution"). Seen on the
+#   real ibm_fez on 2026-11-10. The plugin must not use such a qubit.
+# The plugin must route around all four; check_isa rejects a gate on them.
 BEST_QUBIT = 62
 BROKEN_LINK = (63, 64)
 DOWN_QUBIT = 56
 UNREADABLE_LINK = (60, 61)
+STALE_QUBIT = 84
+UNUSABLE_QUBITS = (DOWN_QUBIT, STALE_QUBIT)
 # A backend whose /properties request fails: the plugin must stop.
 NO_PROPERTIES_BACKEND = "ibm_no_properties"
 
@@ -72,7 +77,8 @@ def link_error(a: int, b: int) -> float:
 
 
 def usable(a: int, b: int) -> bool:
-    return (link_error(a, b) < 1.0 and DOWN_QUBIT not in (a, b)
+    return (link_error(a, b) < 1.0
+            and not {a, b} & set(UNUSABLE_QUBITS)
             and {a, b} != set(UNREADABLE_LINK))
 
 
@@ -90,7 +96,7 @@ def check_isa(qasm3: str) -> None:
         if not NATIVE_LINE.match(line):
             raise HTTPException(400, f"not an ISA instruction: {line!r}")
         for q in map(int, QUBIT.findall(line)):
-            if q >= N_QUBITS or q == DOWN_QUBIT:
+            if q >= N_QUBITS or q in UNUSABLE_QUBITS:
                 raise HTTPException(400, f"qubit {q} is not usable: {line!r}")
         cz = CZ_LINE.match(line)
         if cz:
@@ -153,6 +159,12 @@ async def backend_properties(name: str, request: Request):
                               "value": (None if (a, b) == UNREADABLE_LINK
                                         else link_error(a, b))}]}
              for a, b in sorted(LINKS)]
+    gates += [{"gate": g, "qubits": [q], "name": f"{g}{q}",
+               "parameters": [{"date": date, "name": "gate_error", "unit": "",
+                               "value": 1 if q == STALE_QUBIT else 0.0003},
+                              {"date": date, "name": "gate_length",
+                               "unit": "ns", "value": 24}]}
+              for q in range(N_QUBITS) for g in ("sx", "x")]
     return {"backend_name": name, "qubits": qubits, "gates": gates,
             "general": []}
 

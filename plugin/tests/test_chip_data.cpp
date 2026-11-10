@@ -54,6 +54,14 @@ static json qubitEntry(double readout) {
                       {{"name", "readout_error"}, {"value", readout}}});
 }
 
+static json oneQubitEntry(const char *gate, int q, json error) {
+  return {{"gate", gate},
+          {"qubits", {q}},
+          {"parameters",
+           json::array({{{"name", "gate_error"}, {"value", std::move(error)}},
+                        {{"name", "gate_length"}, {"value", 24.0}}})}};
+}
+
 static json czEntry(int a, int b, json error) {
   return {{"gate", "cz"},
           {"qubits", {a, b}},
@@ -91,7 +99,7 @@ static int tryRealData(const char *configPath, const char *propsPath) {
             << "unreadable entries " << report.unreadable
             << ", links without cz error " << report.unknown.links
             << ", qubits without readout error " << report.unknown.qubits
-            << "\n";
+            << ", qubits with sx or x error 1 " << report.staleQubits << "\n";
   return 0;
 }
 
@@ -124,6 +132,46 @@ int main(int argc, char **argv) {
     ChipDataReport r2;
     CHECK(!chipFromIbmJson(config(), p, "t", r2).qubits[4].operational,
           "operational given as a boolean works too");
+  }
+
+  // ---- 1-qubit gates whose benchmark went stale (IBM reports error 1) -------
+  {
+    json p = props();
+    for (int q = 0; q < 5; ++q) {
+      p["gates"].push_back(oneQubitEntry("sx", q, 0.0003));
+      p["gates"].push_back(oneQubitEntry("x", q, 0.0003));
+      p["gates"].push_back(oneQubitEntry("rx", q, 1.0)); // not in the ISA set
+    }
+    ChipDataReport r;
+    Chip chip = chipFromIbmJson(config(), p, "t", r);
+    CHECK(r.clean() && r.staleQubits == 0 &&
+              usableRegion(chip).qubits.size() == 5,
+          "healthy sx and x errors change nothing; other gates are ignored");
+
+    p["gates"].push_back(oneQubitEntry("sx", 0, 1));  // 1 as an integer
+    p["gates"].push_back(oneQubitEntry("x", 0, 1.0)); // same qubit again
+    p["gates"].push_back(oneQubitEntry("x", 4, 1.0));
+    ChipDataReport r2;
+    Chip stale = chipFromIbmJson(config(), p, "t", r2);
+    CHECK(r2.clean() && r2.staleQubits == 2,
+          "sx or x error 1 is data, counted once per qubit");
+    CHECK((usableRegion(stale).qubits == std::vector<int>{1, 2, 3}),
+          "and those qubits are left out of the region");
+
+    json bad = props();
+    bad["gates"].push_back(oneQubitEntry("sx", 2, nullptr));
+    ChipDataReport r3;
+    Chip unread = chipFromIbmJson(config(), bad, "t", r3);
+    CHECK(r3.unreadable == 1 && !unread.qubits[2].operational,
+          "an unreadable sx error makes the qubit broken");
+
+    json far = props();
+    far["gates"].push_back(oneQubitEntry("sx", 99, 1.0)); // not on the chip
+    ChipDataReport r4;
+    CHECK(usableRegion(chipFromIbmJson(config(), far, "t", r4)).qubits.size() ==
+                  5 &&
+              r4.staleQubits == 0,
+          "an sx entry for a qubit outside the chip is ignored");
   }
 
   // ---- Fail closed on what we cannot read

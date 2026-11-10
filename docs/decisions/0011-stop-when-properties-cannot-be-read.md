@@ -32,13 +32,28 @@ plan gives about 10 minutes of QPU time per 28 days.
 - No cz error for any link: error (not a cz backend).
 - Anything skipped is counted in one warning.
 
+**Added 2026-11-10, after the first hardware run** (done by Claude under this decision,
+reported to Bruno the same day; he can reverse it):
+
+- A qubit whose `sx` or `x` `gate_error` is 1, or cannot be read, is not used. Real `ibm_fez`
+  data had this for qubits 72, 148 and 149 **[V]** (calibration of 2026-11-10), and the first
+  M3 code never looked at 1-qubit gates. No `sx` or `x` entry at all changes nothing.
+
+What an error of 1 means **[V]** IBM guide
+["QPU information"](https://quantum.cloud.ibm.com/docs/en/guides/qpu-information): when the
+benchmark of a gate fails for several days, the value is stale and reported as 1. IBM says
+this does not prove the qubit or link is broken; the error is undefined and "you should
+proceed with caution". So "broken" in this record means "error unknown, we do not use it",
+for links (cz error 1) and for qubits (sx or x error 1) alike.
+
 ## Consequences
 
 - If `/properties` is down, nothing runs on that backend. Way around: `mapping_file`.
 - A damaged entry shrinks the usable region a little instead of risking a bad job.
 - Checked on the FakeFez snapshot (qiskit-ibm-runtime 0.52.0): 0 unreadable entries, 154 of
   156 qubits usable **[V]** `plugin/tests/test_chip_data.cpp` in file mode. Real `ibm_fez`
-  data: **[U]** until the first free fetch.
+  data (2026-11-10): 0 unreadable entries **[V]**; one link (32-33) and three qubits (72,
+  148, 149) carry an error of 1.
 
 ## Revisit when
 

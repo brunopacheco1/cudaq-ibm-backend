@@ -90,8 +90,15 @@ their servers then do with it is **[U]**: we have no access. This is upstream it
   `gate_error` **[V]** `props_fez.json`, `qiskit_ibm_runtime/api/rest/cloud_backend.py`.
 - Broken links: 7 cz pairs have `gate_error` = 1 in the snapshot **[V]**. An optional
   `operational` parameter (0/1) marks down qubits or gates; missing means working **[V]**
-  `backend_properties.py:338-352, 461-472`. Whether today's real `ibm_fez` reply uses both is
-  **[U]** until the first real run.
+  `backend_properties.py:338-352, 461-472`. The real `ibm_fez` reply of 2026-11-10 has no
+  `operational` item at all **[V]**; it marks trouble only with an error of 1: cz on link
+  32-33, and `sx`, `x`, `id`, `rx` on qubits 72, 148 and 149.
+- An error of 1 means the benchmark of that gate failed for several days: the value is
+  stale, "undefined", "proceed with caution" **[V]** IBM guide
+  ["QPU information"](https://quantum.cloud.ibm.com/docs/en/guides/qpu-information). The
+  plugin uses neither such a link nor such a qubit (decision 0011).
+- `readout_error` is the mean of `prob_meas0_prep1` and `prob_meas1_prep0`, and it counts
+  preparation errors too, not only measurement errors **[V]** same guide.
 
 ### 2.6 Routing borrows qubits often
 
@@ -189,8 +196,10 @@ target is untested **[U]**. Both are "not supported in M3" (decision 0010).
 
 [Decision 0011](decisions/0011-stop-when-properties-cannot-be-read.md). The parser
 (`plugin/ChipData.h`) reads the FakeFez snapshot with 0 unreadable entries and leaves 154 of
-156 qubits usable **[V]** `plugin/tests/test_chip_data.cpp` in file mode. Whether today's real
-`ibm_fez` reply has the same shape is **[U]** until the free fetch in §6.
+156 qubits usable **[V]** `plugin/tests/test_chip_data.cpp` in file mode. The real `ibm_fez`
+reply of 2026-11-10 has the same shape and also 0 unreadable entries **[V]** (§6 step 2).
+It showed one gap: an error of 1 on 1-qubit gates, which the parser did not read. Since
+2026-11-10 it does (§2.5, decision 0011), with a fake-server case (qubit 84).
 
 ### 2.14 The QASM the helper receives is not what `cudaq.translate` prints
 
@@ -363,4 +372,42 @@ Every free check comes before the one step that spends QPU time.
      the chain. The counts cannot tell these apart. A readout flip of qubit 113 alone
      (`01000`, `10111`) shows in 32 shots, 3.2%, far below the 11.7% of the morning
      calibration.
+   - Calibration before and after the run: identical for the five qubits and four links
+     **[V]** (two saved `/properties` replies; the values were measured on 2026-11-09
+     between 22:40 and 23:54 UTC, later replies only carry new timestamps). Forecast for
+     the qubits and links the job used, as the product of (1 - readout error) and
+     (1 - cz error): **82.9%**. Measured 81.2%, inside the sampling error. One data point,
+     but the simple model held.
+
+     | Qubit | Readout error | meas 0 after prep 1 | meas 1 after prep 0 |
+     |---|---|---|---|
+     | 112 | 1.17% | 1.27% | 1.07% |
+     | 113 | 11.72% | 12.30% | 11.13% |
+     | 114 | 0.10% | 0.20% | 0.00% |
+     | 115 | 0.83% | 1.27% | 0.39% |
+     | 99 | 3.27% | 4.59% | 1.95% |
+
+     cz errors: 112-113 0.23%, 113-114 0.22%, 114-115 0.21%, 115-99 0.17%.
+   - Hypothesis **[U]** for where qubit 113's 11.7% went: IBM's readout error also counts
+     shots where the qubit did not start in 0 (§2.5), and 113's two values are almost
+     equal, which is unusual for a pure measurement error. A qubit 113 that starts in 1
+     flips every qubit after it in the chain, giving `01111` and `10000` (78 shots, of
+     which about 12 are expected from qubit 112's own readout). Together with the 32 shots
+     above that is about 10%, close to 11.7%. A test that would settle it: measure qubit
+     113 alone, with and without an `x`, and compare with a kernel that resets it first.
+   - **Root rule, after the run.** Forecast for the first 5, 10 and 20 numbers on the
+     same calibration (same product as above, each qubit with the link to the qubit it
+     was reached from). Computed in Python on Bruno's Mac, not yet by the plugin:
+
+     | Rule | Root | 5 | 10 | 20 |
+     |---|---|---|---|---|
+     | Today: best own score, breadth-first order | 114 | 85.3% | 77.6% | 58.7% |
+     | Root by best 10-qubit region, breadth-first order | 144 | 95.5% | 89.2% | 46.3% |
+     | Today's root, best-first order | 114 | 93.3% | 85.6% | 76.5% |
+     | Root by best 10-qubit region, best-first order | 124 | 96.5% | 91.9% | 79.7% |
+
+     Best-first order: the next number goes to the qubit, next to the numbered ones, with
+     the lowest readout error plus cz error of its best link into them. The job does not
+     stay strictly inside the first numbers (GHZ-5 used numbers 0, 1, 2, 3 and 5), so real
+     gains will be somewhat lower. Bruno's choice, asked 2026-11-10.
 4. Open the first upstream issue; fold this spec into architecture.md; delete it.
