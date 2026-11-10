@@ -3,7 +3,8 @@
 The C++ part of this project: a CUDA-Q backend plugin that runs kernels on IBM Quantum.
 It started as a copy of CUDA-Q's `mock_rest` example plugin (see `../NOTICE`).
 
-Status: M1 done (IBM login, submit, poll, results), M2 done (gate rewrite, first `ibm_fez` run). M3 (routing) next.
+Status: M1 done (IBM login, submit, poll, results), M2 done (gate rewrite, first `ibm_fez` run). M3 (routing) is written and
+unit tested, but not yet built and run by Bruno ([../docs/roadmap.md](../docs/roadmap.md)).
 How it works: [../docs/architecture.md](../docs/architecture.md).
 
 ## Files
@@ -13,11 +14,12 @@ How it works: [../docs/architecture.md](../docs/architecture.md).
 | `IBMServerHelper.cpp` | The `cudaq::ServerHelper` for IBM: IAM login, job body, polling, result decoding. Details: [../docs/architecture.md](../docs/architecture.md) §2-§4. |
 | `Qasm2ToIsa.h` | Rewrites CUDA-Q's OpenQASM 2 into IBM's native gates, as OpenQASM 3. Header-only. |
 | `Layout.h` | M3 routing: usable region, root, breadth-first numbering, device file, label -> qubit search. Header-only. |
+| `ChipData.h` | M3: IBM's `/configuration` and `/properties` replies -> the chip `Layout.h` works on. Stops or marks broken what it cannot read. Header-only. |
 | `ResultBits.h` | IBM's hex samples -> CUDA-Q bit strings, keeping the measured qubits. Header-only. |
 | `targets/ibm.yml.in` | The target: compiler pipeline and target arguments. |
 | `CMakeLists.txt` | Builds the plugin as a CUDA-Q external project. |
 | `python/`, `pyproject.toml.in` | Python package with a `cudaq.backends` entry point (still named `cudaq_example_ibm`; renamed in M4). |
-| `tests/test_qasm2_to_isa.cpp`, `tests/test_layout.cpp`, `tests/test_result_bits.cpp` | Unit tests for the three headers. Plain `g++`, no CUDA-Q needed (run `test_layout` from the repo root). |
+| `tests/test_qasm2_to_isa.cpp`, `tests/test_layout.cpp`, `tests/test_chip_data.cpp`, `tests/test_result_bits.cpp` | Unit tests for the four headers. Plain `g++`, no CUDA-Q needed (run `test_layout` from the repo root; `test_chip_data` needs nlohmann/json). |
 | `tests/check_plugin.cpp`, `tests/lit.*` | Lit test inherited from `mock_rest` (`ninja check-ibm`). |
 
 ## Build
@@ -58,18 +60,22 @@ print(cudaq.sample(bell, shots_count=1000))
 ```
 
 Target arguments: `backend` (default `ibm_fez`), `url` (default
-`https://quantum.cloud.ibm.com/api`), `iam_url` (tests only). Set `CUDAQ_LOG_LEVEL=info` to
-see the circuit sent and the raw results.
+`https://quantum.cloud.ibm.com/api`), `iam_url` (tests only), `mapping_file` (a device file to
+route on instead of the chip data from IBM; tests). Set `CUDAQ_LOG_LEVEL=info` to see the
+circuit sent and the raw results.
 
 Kernels made of `x`, `y`, `z`, `h`, `rx`, `ry`, `rz`, `u3` and `cx` (and gates CUDA-Q turns
-into those, such as `s`, `t` and `cz`) are accepted; anything else throws. There is no routing yet (M3), so 2-qubit gates
-must be on qubits that are wired together on the chip.
+into those, such as `s`, `t` and `cz`) are accepted; anything else throws. Since M3 the kernel
+is routed onto the chip, around qubits and links IBM reports as broken. Not supported yet:
+`emulate=True` and `observe`. Known limits: [../docs/m3-spec.md](../docs/m3-spec.md) §2.10-§2.13.
 
 ## Test
 
 ```sh
-# Gate rewrite (any machine with g++, also in CI), from the repo root:
-g++ -std=c++20 -I plugin plugin/tests/test_qasm2_to_isa.cpp -o /tmp/test_isa && /tmp/test_isa
+# Header unit tests (any machine with g++, also in CI), from the repo root:
+for t in qasm2_to_isa layout result_bits chip_data; do
+  g++ -std=c++20 -I plugin plugin/tests/test_$t.cpp -o /tmp/test_$t && /tmp/test_$t
+done
 
 # End to end against the fake IBM server: see ../docs/development.md §4.
 ```

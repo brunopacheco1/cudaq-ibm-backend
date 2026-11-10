@@ -57,6 +57,56 @@ struct Chip {
   std::vector<ChipLink> links;   // from coupling_map, errors from properties
 };
 
+/// Marks an error rate IBM did not give us (or we could not read).
+constexpr double UNKNOWN_ERROR = -1.0;
+
+struct UnknownCount {
+  int qubits = 0;   // qubits with no readout error
+  int links = 0;    // links with no cz error in either direction
+  int allLinks = 0; // links on the chip (each pair counted once)
+};
+
+/// Fail closed on missing data (decision 0009, item 3): what we cannot read,
+/// we do not trust. Call this on a chip whose error rates started as
+/// UNKNOWN_ERROR and were then filled from /properties.
+///   - A link with no cz error in either direction is marked not operational
+///     (an unknown link must not look like a perfect one).
+///   - A link known in one direction only uses that value for both.
+///   - A qubit with no readout error gets the worst score (1), so it is never
+///     picked as the root, but it stays usable.
+inline UnknownCount closeUnknowns(Chip &chip) {
+  UnknownCount count;
+  for (auto &q : chip.qubits)
+    if (q.readoutError < 0.0) {
+      q.readoutError = 1.0;
+      ++count.qubits;
+    }
+  std::map<std::pair<int, int>, double> known; // pair -> worst known error
+  for (const auto &l : chip.links)
+    if (l.czError >= 0.0) {
+      auto [it, fresh] = known.emplace(std::minmax(l.a, l.b), l.czError);
+      if (!fresh)
+        it->second = std::max(it->second, l.czError);
+    }
+  std::map<std::pair<int, int>, bool> unknownPairs, allPairs;
+  for (auto &l : chip.links) {
+    const auto key = std::minmax(l.a, l.b);
+    allPairs[key] = true;
+    if (l.czError >= 0.0)
+      continue;
+    if (auto it = known.find(key); it != known.end()) {
+      l.czError = it->second;
+    } else {
+      l.czError = 1.0;
+      l.operational = false;
+      unknownPairs[key] = true;
+    }
+  }
+  count.links = static_cast<int>(unknownPairs.size());
+  count.allLinks = static_cast<int>(allPairs.size());
+  return count;
+}
+
 // ============================================================================
 // 1. The usable region.
 // ============================================================================
@@ -176,9 +226,13 @@ inline int chooseRoot(const Region &region, const Chip &chip) {
 // had a smaller label (its "parent"), so following parents from any label
 // below k reaches label 0 without leaving 0..k-1.
 //
-// Why it helps: CUDA-Q's default start layout is "identity" (virtual qubit
-// v on device qubit v), so a kernel with n qubits starts on labels 0..n-1,
-// which is a connected patch around the root.
+// Why it helps: low labels are a connected patch around the root, the best
+// qubit we know. The assignment search (step 4) tries each circuit label on
+// the device qubit with the same number first, then on low numbers, so a
+// circuit with m labels lands on or near labels 0..m-1, close to the root. (The
+// router itself does not stay there: with placement=auto its greedy start
+// begins at the most central qubit of the device file. That does not matter,
+// because only the packed labels reach us; m3-spec §2.4.)
 // ============================================================================
 
 struct Layout {
@@ -294,14 +348,15 @@ inline std::vector<std::vector<int>> parseDeviceFile(const std::string &text) {
 //     the label has partners;
 //   - after placing a label, each unplaced partner must still have a free
 //     candidate, otherwise it backs up at once.
-// A label with no placed partner (the first of each connected group) tries
-// its own number first, so labels stay near the region CUDA-Q routed on.
+// Every label tries the device qubit with its own number first, then the
+// others in ascending order, so the circuit stays on low device labels,
+// which are the ones near the root.
 //
-// Known limit: a circuit that fills (almost) the whole chip may hit the step
-// budget and be refused with a clear error, never a wrong placement. In a
-// stress test on ibm_fez (labels shuffled, worst case for the search), 0 of
-// 40 failed at 100 and 130 labels, 19 of 40 at all 156. A circuit that uses
-// the whole chip is far beyond what we run in M3.
+// Known limit: above about 100 labels the search may hit the step budget and
+// refuse the circuit with a clear error, never a wrong placement. Stress test
+// on ibm_fez (experiments/m3_search_stress.cpp, 40 cases each): nothing
+// refused at 100 labels; sparse, chain-like circuits refused in 4 of 40 cases
+// at 130 and up to 7 of 40 at 156; dense circuits never.
 // ============================================================================
 
 inline std::vector<int>

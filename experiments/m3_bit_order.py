@@ -13,7 +13,8 @@ OpenQASM 2 that CUDA-Q gives the helper (Qiskit), reads the classical bits
 the way IBM returns them (c[i] = i-th measure statement), and compares:
 
 - OLD: the pipeline before the fix, bits read as is. Wrong when the kernel
-  measures qubits out of order (sabre can also move measurements).
+  measures qubits out of order. The router options do not matter: the same
+  kernels fail with CUDA-Q's default identity start.
 - NEW: plugin/targets/ibm.yml.in as it is now, bits selected as
   IBMServerHelper::processResults does (plugin/ResultBits.h): keep c[q] for
   each qubit q in output_names, ascending.

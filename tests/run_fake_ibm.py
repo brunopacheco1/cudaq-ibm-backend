@@ -59,9 +59,11 @@ assert counts["10"] == 2 and counts["01"] == 1, counts
 print("OK: rx, ry, z, y, s, t, u3 rewrite into ISA gates the server accepts.")
 
 # M3: a 20-qubit GHZ chain. The fake server serves ibm_fez's real wiring
-# (156 qubits), marks link 62-63 broken and qubit 61 down, and rejects any
-# cz that is not on a working link. So acceptance proves the routing, the
-# device file and the label -> IBM qubit assignment all work together.
+# (156 qubits). Around the best qubit (62) it marks link 63-64 broken and
+# qubit 56 down, gives link 60-61 a gate_error that cannot be read, and
+# rejects any cz that is not on a working link. So acceptance proves the
+# routing, the device file, the fail-closed reading of /properties and the
+# label -> IBM qubit assignment all work together.
 kernel = cudaq.make_kernel()
 q = kernel.qalloc(20)
 kernel.h(q[0])
@@ -116,3 +118,35 @@ print(counts)
 assert counts["10000"] == 2 and counts["01000"] == 1, counts
 print("OK: mapping_file override routes on the given device file.")
 os.remove(f.name)
+
+# M3: if /properties cannot be read the plugin must stop, not guess (decision
+# 0009, item 3). The fake server answers 503 for this backend's properties.
+cudaq.set_target("ibm",
+                 backend="ibm_no_properties",
+                 url=f"http://localhost:{PORT}/api",
+                 iam_url=f"http://localhost:{PORT}/identity/token")
+kernel = cudaq.make_kernel()
+q = kernel.qalloc(2)
+kernel.h(q[0])
+kernel.cx(q[0], q[1])
+kernel.mz(q)
+try:
+    cudaq.sample(kernel, shots_count=3)
+except Exception as e:  # noqa: BLE001
+    assert "/properties" in str(e), e
+    print("OK: no /properties, no job:", str(e).splitlines()[0][:100])
+else:
+    raise AssertionError("a job was sent although /properties failed")
+
+# Probe, not a test: does emulate=True work with this pipeline? The review
+# expects it to fail (decision 0010). Tell Claude what this prints.
+try:
+    cudaq.set_target("ibm", emulate=True)
+    kernel = cudaq.make_kernel()
+    q = kernel.qalloc(3)
+    kernel.x(q[0])
+    kernel.cx(q[0], q[2])
+    kernel.mz(q)
+    print("PROBE emulate=True: worked,", cudaq.sample(kernel, shots_count=10))
+except Exception as e:  # noqa: BLE001
+    print("PROBE emulate=True: failed:", str(e).splitlines()[0][:200])
