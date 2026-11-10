@@ -20,12 +20,17 @@ Result with cudaq 0.16.0:
       swap on qubits [2, 3]
       cz on qubits [3, 0]
 
-Needs: pip install cudaq==0.16.0
+Needs: pip install cudaq==0.16.0, or a source build of CUDA-Q (dev container).
 Run:   python experiments/upstream_layout_lost.py
+       python experiments/upstream_layout_lost.py --stages
+
+With --stages the kernel is also printed after each step of the compiler, so
+the change from device qubit 6 to qubit 3 can be followed by eye.
 """
 
 import os
 import re
+import sys
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -44,8 +49,27 @@ def kernel():
     mz(q)
 
 
-DEVICE = os.path.join(os.path.dirname(cudaq.__file__), "..", "targets",
-                      "mapping", "anyon", "berkeley-25q.txt")
+
+
+def device_file() -> str:
+    """Anyon's berkeley-25q.txt as shipped with CUDA-Q.
+
+    The pip wheel keeps `targets/` next to the `cudaq` package; a source build
+    keeps it one directory higher (build/targets, package in build/python).
+    """
+    package = os.path.dirname(cudaq.__file__)
+    tried = []
+    for up in ("..", os.path.join("..", "..")):
+        path = os.path.normpath(os.path.join(
+            package, up, "targets", "mapping", "anyon", "berkeley-25q.txt"))
+        if os.path.exists(path):
+            return path
+        tried.append(path)
+    raise SystemExit("berkeley-25q.txt not found; looked at:\n  " +
+                     "\n  ".join(tried))
+
+
+DEVICE = device_file()
 # What the runtime runs before a target's own pipeline.
 HIGH = ("canonicalize,hw-jit-prep-pipeline{allow-early-exit=false},"
         "expand-measurements,jit-deploy-pipeline")
@@ -58,12 +82,34 @@ ROUTING = ("func.func(erase-implicit-output),anyon-pgate-set-mapping,"
 QUBIT = r"(?:%Qubit\*|ptr) (?:inttoptr \(i64 (\d+) to (?:%Qubit\*|ptr)\)|null)"
 
 
+def show(title: str, text: str) -> None:
+    """Print the kernel's function out of a module's text (--stages only)."""
+    print(f"\n--- {title} ---")
+    inside = False
+    for line in text.splitlines():
+        if "func.func @__nvqpp__mlirgen__kernel" in line:
+            inside = True
+        if inside:
+            print(line)
+            if line.strip() == "}":
+                break
+    print()
+
+
 def main() -> None:
+    stages = "--stages" in sys.argv[1:]
     _, mod = kernel.prepare_call()
     m = Module.parse(str(mod), mod.context)
-    PassManager.parse(f"builtin.module({HIGH},{ROUTING})",
+    if stages:
+        show("1. the kernel as written", str(m))
+    PassManager.parse(f"builtin.module({HIGH})", mod.context).run(m.operation)
+    if stages:
+        show("2. after the common steps (HIGH)", str(m))
+    PassManager.parse(f"builtin.module({ROUTING})",
                       mod.context).run(m.operation)
     text = str(m)
+    if stages:
+        show("3. after routing (ROUTING): device qubits in borrow_wire", text)
     print(re.search(r"mapping_v2p = \[[^\]]*\]", text).group(0))
     wires = {int(i) for i in re.findall(r"borrow_wire @\w+\[(\d+)\]", text)}
     print("device qubits after qubit-mapping:", sorted(wires))
@@ -72,10 +118,18 @@ def main() -> None:
     PassManager.parse("builtin.module(func.func(regtomem))",
                       mod.context).run(m.operation)
     text = str(m)
+    if stages:
+        show("4. after regtomem: the device qubits are gone", text)
     print(f"after regtomem: {text.count('quake.borrow_wire')} borrow_wire, "
           f"{text.count('quake.alloca')} alloca")
 
     qir = cudaq_runtime.translate_impl(kernel.uniqName, m, "qir-adaptive")
+    if stages:
+        print("\n--- 5. the gate calls in the QIR ---")
+        for line in qir.splitlines():
+            if "@__quantum__qis__" in line and "call" in line:
+                print(line)
+        print()
     gates = []
     for line in qir.splitlines():
         call = re.search(r"call void @__quantum__qis__(\w+?)__", line)
