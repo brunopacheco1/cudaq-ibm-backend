@@ -25,6 +25,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cudaq::ibm {
@@ -128,14 +129,48 @@ inline void ruleU3(IsaBuilder &o, double t, double p, double l, int a) {
 // Parser: CUDA-Q's OpenQASM 2 output (see tests for real examples).
 // ============================================================================
 
+/// The quantum registers of a program, in the order they are declared.
+/// CUDA-Q declares one `qreg` for a `qvector` (`qreg var0[2];`), but after
+/// routing every qubit is its own register (`qreg var0[1]; qreg var1[1];`),
+/// because `regtomem` makes one allocation per qubit. The label of a qubit is
+/// its position when the registers are laid end to end, so `var1[0]` is
+/// label 1 in the second form.
+class QregTable {
+  std::map<std::string, std::pair<int, int>> regs; // name -> (offset, size)
+  int total = 0;
+
+public:
+  void declare(const std::string &name, int size) {
+    if (!regs.emplace(name, std::make_pair(total, size)).second)
+      throw std::runtime_error("ibm: quantum register '" + name +
+                               "' is declared twice");
+    total += size;
+  }
+  /// The label of `reg[idx]`. Throws if the register is unknown or too small.
+  int label(const std::string &reg, int idx) const {
+    const auto it = regs.find(reg);
+    if (it == regs.end())
+      throw std::runtime_error("ibm: unknown quantum register '" + reg + "'");
+    if (idx < 0 || idx >= it->second.second)
+      throw std::runtime_error("ibm: " + reg + "[" + std::to_string(idx) +
+                               "] is outside its register");
+    return it->second.first + idx;
+  }
+  int size() const { return total; }
+};
+
 /// Result of a conversion.
 struct IsaCircuit {
   std::string qasm3; // the program to send to IBM
-  int numQubits = 0; // size of the qreg CUDA-Q declared
+  int numQubits = 0; // qubits CUDA-Q declared, over all its qregs
   int numClbits = 0; // one per measurement, in program order
 };
 
-inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
+/// `physical[k]` is the IBM qubit that label k runs on (labels: QregTable);
+/// empty means label k runs on qubit k (M2 behaviour). M3 fills it from
+/// Layout.h.
+inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2,
+                                  const std::vector<int> &physical = {}) {
   // "name(args) operands;"  e.g. "rz(1.5e+00) var0[1];"  "cx var0[0], var0[1];"
   static const std::regex gateRe(
       R"(^\s*([a-z][a-z0-9_]*)\s*(?:\(([^)]*)\))?\s+([^;]*);\s*$)");
@@ -147,12 +182,16 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
 
   IsaBuilder out;
   IsaCircuit result;
-  std::string qregName;
+  QregTable qregs;
 
   auto qubit = [&](const std::string &reg, int idx) {
-    if (reg != qregName)
-      throw std::runtime_error("ibm: unknown quantum register '" + reg + "'");
-    return idx; // M2: virtual qubit k runs on physical qubit k (M3 maps)
+    const int label = qregs.label(reg, idx);
+    if (physical.empty())
+      return label;
+    if (label >= static_cast<int>(physical.size()))
+      throw std::runtime_error("ibm: qubit label " + std::to_string(label) +
+                               " has no physical qubit");
+    return physical[label];
   };
 
   std::istringstream in(qasm2);
@@ -169,10 +208,7 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
 
     std::smatch m;
     if (std::regex_search(line, m, qregRe)) {
-      if (!qregName.empty())
-        throw std::runtime_error("ibm: more than one qreg is not supported");
-      qregName = m[1];
-      result.numQubits = std::stoi(m[2]);
+      qregs.declare(m[1], std::stoi(m[2]));
       continue;
     }
     if (std::regex_search(line, m, measureRe)) {
@@ -237,7 +273,8 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
     }
   }
 
-  if (qregName.empty())
+  result.numQubits = qregs.size();
+  if (result.numQubits == 0)
     throw std::runtime_error("ibm: no qreg found in the QASM from CUDA-Q");
   if (result.numClbits == 0)
     throw std::runtime_error("ibm: circuit has no measurements");
@@ -248,6 +285,47 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2) {
     s += l + "\n";
   result.qasm3 = s;
   return result;
+}
+
+/// The qubit pairs of every 2-qubit gate (in labels), and the number of
+/// qubits over all qregs. Layout.h's assignQubits() needs these before the
+/// rewrite can pick physical qubits. Gates are not checked here;
+/// qasm2ToIsaQasm3 does that.
+struct Qasm2Interactions {
+  int numQubits = 0;
+  std::vector<std::pair<int, int>> pairs;
+};
+
+inline Qasm2Interactions qasm2Interactions(const std::string &qasm2) {
+  static const std::regex qregRe(
+      R"(^\s*qreg\s+([A-Za-z_][A-Za-z0-9_]*)\[(\d+)\];)");
+  static const std::regex operandRe(R"(([A-Za-z_][A-Za-z0-9_]*)\[(\d+)\])");
+  Qasm2Interactions out;
+  QregTable qregs;
+  std::istringstream in(qasm2);
+  std::string line;
+  while (std::getline(in, line)) {
+    std::smatch m;
+    if (std::regex_search(line, m, qregRe)) {
+      qregs.declare(m[1], std::stoi(m[2]));
+      continue;
+    }
+    auto first = line.find_first_not_of(" \t\r");
+    if (first == std::string::npos || line.compare(first, 2, "//") == 0 ||
+        line.compare(first, 4, "creg") == 0 ||
+        line.compare(first, 7, "measure") == 0 ||
+        line.compare(first, 7, "barrier") == 0)
+      continue;
+    std::vector<int> qs;
+    for (std::sregex_iterator it(line.begin(), line.end(), operandRe), end;
+         it != end; ++it)
+      qs.push_back(qregs.label((*it)[1], std::stoi((*it)[2])));
+    for (std::size_t i = 0; i < qs.size(); ++i)
+      for (std::size_t j = i + 1; j < qs.size(); ++j)
+        out.pairs.emplace_back(qs[i], qs[j]);
+  }
+  out.numQubits = qregs.size();
+  return out;
 }
 
 } // namespace cudaq::ibm
