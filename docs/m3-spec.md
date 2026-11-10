@@ -324,6 +324,13 @@ Every free check comes before the one step that spends QPU time.
    entries, every link has a cz error and every qubit a readout error. Two facts about
    the real data: no qubit has an "operational" item (so a broken qubit shows only through
    its error rates and its links), and the gate list also has `rzz` on every link.
+   **Finding about the root** (calibration of 2026-11-10 12:19 UTC): qubit 114 has the best
+   score (readout error 0.1%, mean cz error 0.21%), but it has only two neighbours and one
+   of them, 113, has a readout error of 11.7% (chip median 1.2%, 90th percentile 7.3%).
+   The score (decision 0009, item 2) looks at the root and its links only, so it cannot
+   see that. Expected GHZ-5 score from these numbers: about 84% (five readouts multiply to
+   about 86%, 4 to 7 cz at 0.2% each), not the 85-90% guessed below. Whether to change the
+   score is Bruno's call (asked 2026-11-10).
 3. **Hardware, one session**, with `CUDAQ_LOG_LEVEL=info` (logs the label -> qubit map and the
    ISA circuit):
    Script: `tests/run_ibm_hardware.py --ghz-mark M1 --order-mark M2 --yes-spend-qpu-time`
