@@ -24,11 +24,12 @@ Conventions, used by every function below and by the tests:
   classical bit j. IBM returns each shot as one hex number whose bit j is
   c[j] (docs/architecture.md, section 3.5).
 
-The file has two parts. The plumbing (reading the OpenQASM 3 text) is done.
-The quantum part is yours, Bruno: eight small functions, in the order the
-tests in tests/test_isa_simulator.py check them. Run one group at a time:
+The file has two parts: the plumbing (reading the OpenQASM 3 text) and the
+quantum part, eight small functions that each build on the one before. The
+tests in tests/test_isa_simulator.py check them in the same order, and
+compare the whole simulator with Qiskit:
 
-    pytest tests/test_isa_simulator.py -k step1
+    pytest tests/test_isa_simulator.py
 """
 
 import re
@@ -59,7 +60,7 @@ class Circuit:
 
 
 # --------------------------------------------------------------------------
-# Plumbing: OpenQASM 3 text -> Circuit. Done; nothing to fill in here.
+# Plumbing: OpenQASM 3 text -> Circuit.
 # --------------------------------------------------------------------------
 
 _RZ = re.compile(r"^rz\(([-+0-9.eE]+)\) \$(\d+);$")
@@ -108,7 +109,7 @@ def parse(qasm3: str) -> Circuit:
 
 
 # --------------------------------------------------------------------------
-# The quantum part: yours, Bruno. Replace each `raise NotImplementedError`.
+# The quantum part: eight small steps, from the zero state to the samples.
 # --------------------------------------------------------------------------
 
 
@@ -156,9 +157,11 @@ def apply_gate(state: np.ndarray, matrix: np.ndarray, qubit: int) -> np.ndarray:
 
         new[i0], new[i1] = matrix @ (old[i0], old[i1])
 
-    There are 2**(n-1) such pairs. A loop over them is fine (the circuits
-    are small); numpy's reshape can do it without a loop if you like.
-    Do not change `state` in place: return a new array.
+    There are 2**(n-1) such pairs. The reshape sorts the amplitudes into a
+    box with three directions (the bits above k, bit k, the bits below k),
+    so the pairs lie along the middle direction, and einsum multiplies the
+    matrix along it for all pairs at once. `state` is not changed: the
+    result is a new array.
     """
     blocks = state.reshape(-1, 2, 2 ** qubit)
     return np.einsum("ab,hbl->hal", matrix, blocks).reshape(-1)
