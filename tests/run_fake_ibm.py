@@ -60,8 +60,9 @@ print("OK: rx, ry, z, y, s, t, u3 rewrite into ISA gates the server accepts.")
 
 # M3: a 20-qubit GHZ chain. The fake server serves ibm_fez's real wiring
 # (156 qubits). Around the best qubit (62) it marks link 63-64 broken and
-# qubit 56 down, gives link 60-61 a gate_error that cannot be read, and
-# rejects any cz that is not on a working link. So acceptance proves the
+# qubit 56 down, gives link 60-61 a gate_error that cannot be read and
+# qubit 84 an sx error of 1 (a stale benchmark), and rejects any gate on
+# those qubits and any cz that is not on a working link. So acceptance proves the
 # routing, the device file, the fail-closed reading of /properties and the
 # label -> IBM qubit assignment all work together.
 kernel = cudaq.make_kernel()

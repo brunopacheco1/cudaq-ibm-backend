@@ -99,6 +99,20 @@ def test_down_qubit_is_rejected():
     assert r.status_code == 400 and "not usable" in r.json()["detail"]
 
 
+def test_properties_report_a_stale_sx_error_as_one():
+    body = client.get("/api/v1/backends/ibm_fez/properties", headers=AUTH).json()
+    sx = {g["qubits"][0]: g["parameters"][0]["value"]
+          for g in body["gates"] if g["gate"] == "sx"}
+    assert len(sx) == 156 and sx[fake.STALE_QUBIT] == 1
+    assert all(v < 0.01 for q, v in sx.items() if q != fake.STALE_QUBIT)
+
+
+def test_qubit_with_stale_sx_error_is_rejected():
+    for line in (f"sx ${fake.STALE_QUBIT};", f"cz ${fake.STALE_QUBIT}, $85;"):
+        r = client.post("/api/v1/jobs", headers=AUTH, json=job([line]))
+        assert r.status_code == 400 and "not usable" in r.json()["detail"]
+
+
 def test_results_report_num_bits_of_the_circuit():
     job_id = client.post("/api/v1/jobs", headers=AUTH,
                          json=job(["x $0;"])).json()["id"]

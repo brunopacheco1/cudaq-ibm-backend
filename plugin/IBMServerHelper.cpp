@@ -228,6 +228,10 @@ class IBMServerHelper : public ServerHelper {
                  "error (never the root).",
                  backend, report.unreadable, report.unknown.links,
                  report.unknown.qubits);
+    if (report.staleQubits > 0)
+      CUDAQ_INFO("IBM: {} qubits of {} are not used: IBM reports their sx or "
+                 "x error as 1 (stale benchmark).",
+                 report.staleQubits, backend);
     return chip;
   }
 

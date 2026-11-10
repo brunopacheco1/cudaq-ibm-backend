@@ -17,7 +17,14 @@
 //   - an "operational" or "gate_error" value we cannot read makes that qubit
 //     or link broken;
 //   - a link with no cz error at all is not used, and a qubit with no readout
-//     error is never the root (Layout.h, closeUnknowns).
+//     error is never the root (Layout.h, closeUnknowns);
+//   - a qubit whose sx or x error is 1 (or unreadable) is not used. IBM
+//     reports 1 when the benchmark of a gate failed for several days: the
+//     value is "undefined, proceed with caution" (IBM guide "QPU
+//     information"). Seen on ibm_fez on 2026-11-10 for qubits 72, 148, 149.
+//     A link whose cz error is 1 is dropped the same way (Layout.h,
+//     usableRegion). No sx or x entry at all changes nothing: the plugin
+//     does not use these error rates for anything else.
 //
 // Pure functions: JSON in, Chip out, no network. Unit tested in
 // tests/test_chip_data.cpp. Needs only nlohmann/json.
@@ -29,6 +36,7 @@
 
 #include <cstddef>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -37,8 +45,9 @@ namespace cudaq::ibm {
 
 /// What chipFromIbmJson could not use; the caller logs it.
 struct ChipDataReport {
-  std::size_t unreadable = 0; // entries of /properties we could not read
-  UnknownCount unknown;       // qubits and links left without an error rate
+  std::size_t unreadable = 0;  // entries of /properties we could not read
+  UnknownCount unknown;        // qubits and links left without an error rate
+  std::size_t staleQubits = 0; // qubits not used: sx or x error given as 1
   bool clean() const {
     return unreadable == 0 && unknown.qubits == 0 && unknown.links == 0;
   }
@@ -102,6 +111,37 @@ inline Chip chipFromIbmJson(const nlohmann::json &config,
       }
     }
   }
+
+  // 1-qubit gates of the ISA set. rz is a frame change and has no error.
+  std::set<int> stale;
+  for (const auto &gate : props["gates"]) {
+    int q = -1;
+    try {
+      const auto name = gate.at("gate").get<std::string>();
+      if (name != "sx" && name != "x")
+        continue;
+      const auto &ends = gate.at("qubits");
+      if (!ends.is_array() || ends.size() != 1)
+        throw std::runtime_error("1-qubit gate entry without one qubit");
+      q = ends[0].get<int>();
+      if (q < 0 || q >= static_cast<int>(chip.qubits.size())) {
+        q = -1;
+        continue;
+      }
+      if (gate.contains("parameters"))
+        for (const auto &param : gate["parameters"])
+          if (param.at("name").get<std::string>() == "gate_error" &&
+              ibmNumber(param.at("value")) >= 1.0)
+            stale.insert(q);
+    } catch (const std::exception &) {
+      ++report.unreadable;
+      if (q >= 0)
+        chip.qubits[q].operational = false;
+    }
+  }
+  for (int q : stale)
+    chip.qubits[q].operational = false;
+  report.staleQubits = stale.size();
 
   for (const auto &gate : props["gates"]) {
     ChipLink *link = nullptr;
