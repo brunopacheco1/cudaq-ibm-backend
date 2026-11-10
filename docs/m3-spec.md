@@ -190,6 +190,26 @@ statements found" **[V]** at pass level, pip CUDA-Q; **[U]** in the built plugin
 156 qubits usable **[V]** `plugin/tests/test_chip_data.cpp` in file mode. Whether today's real
 `ibm_fez` reply has the same shape is **[U]** until the free fetch in §6.
 
+### 2.14 The QASM the helper receives is not what `cudaq.translate` prints
+
+Found on 2026-11-10, in the first run of the built plugin: the Bell pair failed with
+"bad 2-qubit gate on labels 0, 0". Cause **[V]** in the CUDA-Q source:
+
+- After `regtomem` every qubit is its own allocation, and the OpenQASM emitter prints one
+  register per allocation: `qreg var0[1]; qreg var1[1];`, then `cx var0[0], var1[0];`
+  (`TranslateToOpenQASM.cpp:160-175`).
+- `cudaq.translate(..., "openqasm2")`, which all experiments here use, runs extra passes
+  first (`QPU.cpp:98-134`) and prints one register, `qreg var0[2];`. The runtime path does
+  not run them (`RuntimeMLIR.cpp`, "qasm2" translation).
+
+So our parser, which read only the index in the brackets, saw qubit 0 twice. Fix:
+`QregTable` in `Qasm2ToIsa.h` numbers the qubits over all registers in the order they are
+declared; both forms give the same labels (unit tested). The exact text the runtime sends
+is **[U]** until the container run logs it.
+
+Lesson: an experiment with pip `cudaq` shows what the passes do, not what the plugin
+receives. Only a run of the built plugin closes that gap.
+
 ## 3. Choices for Bruno
 
 ### D1. How do we get correct physical ids despite §2.4?

@@ -358,6 +358,8 @@ public:
       if (layout.adj.empty())
         throw std::runtime_error(
             "IBM: no chip layout; the kernel was not compiled for 'ibm'.");
+      CUDAQ_INFO("IBM: OpenQASM 2 from CUDA-Q for {}:\n{}", circuitCode.name,
+                 circuitCode.code);
       const auto interactions = ibm::qasm2Interactions(circuitCode.code);
       const auto place = ibm::assignQubits(interactions.numQubits,
                                            interactions.pairs, layout.adj);
