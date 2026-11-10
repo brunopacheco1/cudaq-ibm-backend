@@ -415,4 +415,13 @@ Every free check comes before the one step that spends QPU time.
      gains will be somewhat lower. **Bruno chose the last row on 2026-11-10**
      ([decision 0012](decisions/0012-root-by-best-region-best-first-numbering.md)); it is
      in `Layout.h` with unit tests. Not measured on hardware yet.
+   - **Free tests again with the new rule** (2026-11-10, built plugin at 5a1f9b8): build
+     clean, four unit tests pass, `tests/run_fake_ibm.py` 6 `OK` and 1 `PROBE`; the fake
+     chip reports "153 of 156 qubits usable" and no circuit touches its stale qubit 84.
+     On the saved real `ibm_fez` data, `test_chip_data` in file mode and an independent
+     Python script agree to four decimals **[V]**: qubits 72, 148, 149 and link 32-33
+     left out, root 121, first ten numbers 121 122 123 124 136 143 142 144 145 146,
+     forecast 96.47% / 91.88% / 79.74% for 5 / 10 / 20 qubits. Nine roots grow the same
+     10-qubit patch and tie (124 among them, the root in the table above); the tie rule
+     picks 121, the one with the lowest readout error (0.34%).
 4. Open the first upstream issue; fold this spec into architecture.md; delete it.
