@@ -342,4 +342,25 @@ Every free check comes before the one step that spends QPU time.
    - One non-symmetric kernel, because a GHZ result reads the same in any bit order: 3
      qubits, `x(q[0]); mz(q[2]); mz(q[0])`, 200 shots. Proposed pass mark: `10` in at least
      90% of the shots. A wrong bit order would give mostly `01`.
+
+   **Done 2026-11-10**, one run, both pass. Marks set by Bruno before the run: 75% and 95%
+   (he chose to run with the root rule as it is, knowing the 84% forecast).
+   - GHZ-5: `00000` 422 + `11111` 390 = **81.2%** of 1000 shots (forecast about 84%;
+     sampling error about 2.5 points). Labels 0..4 ran on qubits 112, 113, 114, 115, 99,
+     with 4 `cz` and no swap.
+     Full counts: `{ 00000:422 00001:21 00010:2 00011:2 00100:1 00111:4 01000:15 01011:1
+     01101:2 01110:1 01111:48 10000:30 10001:1 10100:3 10110:3 10111:17 11000:6 11011:5
+     11100:6 11101:9 11110:11 11111:390 }`.
+   - `x(q[0]); mz(q[2]); mz(q[0])`: `10` 196 of 200 = **98.0%**, `01` 0, `00` 3, `11` 1.
+     Sent as `x $114` and measures of 114, 113, 115; the result came back as (q0, q2).
+     So the bit order of §2.5 holds on hardware.
+   - No queue: each job took about 7 s from POST to results, about 1.2 s of it on the
+     chip. Log at INFO: 306 lines, none with a key, a token or an Authorization header,
+     no warning, no error.
+   - Reading the GHZ errors: the two largest wrong outcomes, `01111` (48) and `10000`
+     (30), are what a readout flip of label 0 (qubit 112) gives, and also what a bit flip
+     on label 1 (qubit 113) between its two `cz` gives, because that flip spreads down
+     the chain. The counts cannot tell these apart. A readout flip of qubit 113 alone
+     (`01000`, `10111`) shows in 32 shots, 3.2%, far below the 11.7% of the morning
+     calibration.
 4. Open the first upstream issue; fold this spec into architecture.md; delete it.
