@@ -162,8 +162,8 @@ Smallest useful step first; each step is one PR.
 
 Effort: about 4 to 6 part-time days. The roadmap said 2 to 3, but that was packaging alone.
 
-Note: PR 12 (token expiry mode, other thread) also changes `tests/fake_ibm_server.py`.
-Step 2 starts after it is merged.
+Note: the fake server got a token-expiry mode on 2026-11-10 (PR 12). Step 2 builds on that
+version and keeps the mode.
 
 ## 5. Test plan
 
