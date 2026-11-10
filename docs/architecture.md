@@ -473,7 +473,7 @@ Two runs on `ibm_fez` on 2026-11-10, two hours apart on the same calibration, wi
 | Forecast for those qubits and links | 82.9% | 95.0% |
 | `x(q[0]); mz(q[2]); mz(q[0])`, 200 shots, `10` | 196 = **98.0%** (mark 95%) | 196 = **98.0%** |
 
-Run 2 used the plugin built at commit 5a1f9b8. Each GHZ job: 4 `cz`, no swap, about 7 s
+Run 2 used the plugin built at commit ac3f03a. Each GHZ job: 4 `cz`, no swap, about 7 s
 from POST to results with no queue, 1.3 to 1.4 s of it on the chip. The second kernel proves the bit order of §9.5: a wrong order would give `01`.
 
 Full counts. Run 1: `{ 00000:422 00001:21 00010:2 00011:2 00100:1 00111:4 01000:15 01011:1

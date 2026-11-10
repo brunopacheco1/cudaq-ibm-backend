@@ -62,8 +62,17 @@ When you add a rewrite rule (after Bruno has derived it), add a case to `kRuleCa
   CUDA-Q includes so its test compiles with plain `g++`.
 - **Writing.** Simple, direct English. Explain the quantum idea behind a step when it is not
   obvious; this is a learning project.
-- **Git.** Work on a branch and open a PR; never push to `main`. Upstream CUDA-Q contributions
-  need a DCO sign-off; candidates are in [docs/upstream.md](docs/upstream.md).
+- **Git.** Work on a branch and open a PR; never push to `main` and never rewrite its
+  history.
+- **Authorship.** Bruno is the author of every commit. An agent commits with
+  `--author` set to the identity on the commits of `main`
+  (`git log -1 --format='%an <%ae>' main`) and names itself only in a `Co-Authored-By:`
+  trailer. An agent cannot sign with Bruno's key, so its commits do not go to `main` as they
+  are: Bruno merges each PR with **Squash and merge**, which makes one commit signed by
+  GitHub.
+- **Upstream.** CUDA-Q contributions need a DCO sign-off (`Signed-off-by:`). It is Bruno's
+  personal statement: only he adds it, with `git commit -s`. Candidates are in
+  [docs/upstream.md](docs/upstream.md).
 
 ## Gotchas
 
