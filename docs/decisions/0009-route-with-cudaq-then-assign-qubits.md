@@ -30,6 +30,9 @@ default options) **[V]**. So "label = device qubit" is wrong.
    lowest (mean cz error of its links + readout error); number breadth-first from it, so every
    prefix 0..k-1 is connected. The search tries each label's own number first, which keeps the
    circuit near the root.
+   **Replaced on 2026-11-10** by [decision 0012](0012-root-by-best-region-best-first-numbering.md):
+   the root is chosen by its best 10-qubit region and the numbering is best-first. The
+   rest of this record stands.
 3. **Fetch `/configuration` and `/properties` per compile**, kept 60 s: CUDA-Q asks for the
    device file twice per `sample` **[V]** `launch.h:83-86`, `RemoteRESTQPU.cpp:33`, so both
    calls share one fetch. `mapping_file` skips the fetch. What happens when `/properties`

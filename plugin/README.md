@@ -13,7 +13,7 @@ How it works: [../docs/architecture.md](../docs/architecture.md).
 |---|---|
 | `IBMServerHelper.cpp` | The `cudaq::ServerHelper` for IBM: IAM login, job body, polling, result decoding. Details: [../docs/architecture.md](../docs/architecture.md) §2-§4. |
 | `Qasm2ToIsa.h` | Rewrites CUDA-Q's OpenQASM 2 into IBM's native gates, as OpenQASM 3. Header-only. |
-| `Layout.h` | M3 routing: usable region, root, breadth-first numbering, device file, label -> qubit search. Header-only. |
+| `Layout.h` | M3 routing: usable region, root, best-first numbering, device file, label -> qubit search. Header-only. |
 | `ChipData.h` | M3: IBM's `/configuration` and `/properties` replies -> the chip `Layout.h` works on. Stops or marks broken what it cannot read. Header-only. |
 | `ResultBits.h` | IBM's hex samples -> CUDA-Q bit strings, keeping the measured qubits. Header-only. |
 | `targets/ibm.yml.in` | The target: compiler pipeline and target arguments. |

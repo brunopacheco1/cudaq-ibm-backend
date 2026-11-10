@@ -13,6 +13,7 @@
 #include "Layout.h"
 #include "Qasm2ToIsa.h"
 
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <random>
@@ -180,45 +181,134 @@ static void testUnknowns() {
         "complete data: nothing changes");
 }
 
-// ---- 2. Root ---------------------------------------------------------------
-static void testRoot() {
-  // Path 0-1-2-3. Link errors 0.10, 0.01, 0.01; readout of 2 is bad.
-  Chip chip;
-  chip.qubits.assign(4, {});
-  chip.qubits[2].readoutError = 0.2;
-  chip.links = {{0, 1, 0.10, true}, {1, 2, 0.01, true}, {2, 3, 0.01, true}};
-  Region r = usableRegion(chip);
-  // Scores: q0 0.10, q1 0.055, q2 0.01+0.2, q3 0.01 -> q3.
-  CHECK(chooseRoot(r, chip) == 3, "root = lowest mean link error + readout");
-  chip.qubits[3].readoutError = 0.05;
-  // q3 now 0.06 -> q1 (0.055) wins.
-  CHECK(chooseRoot(usableRegion(chip), chip) == 1, "readout error counts");
+// ---- 2. Root and best-first numbering (decision 0012) -----------------------
+static bool near(double a, double b) { return std::abs(a - b) < 1e-12; }
+
+// Random error rates on the ibm_fez wiring; same seed, same chip.
+static Chip noisyFez(unsigned seed) {
+  Chip chip = loadFez();
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> readout(0.001, 0.12), cz(0.001, 0.03);
+  for (auto &q : chip.qubits)
+    q.readoutError = readout(rng);
+  for (std::size_t i = 0; i + 1 < chip.links.size(); i += 2) // both directions
+    chip.links[i].czError = chip.links[i + 1].czError = cz(rng);
+  return chip;
 }
 
-// ---- 3. Breadth-first numbering --------------------------------------------
+static void testRoot() {
+  // Path 0-1-2-3-4-5, every link 0.01. Qubit 1 is the best single qubit,
+  // but it sits between two badly measured ones; 3-4-5 is the good patch.
+  Chip chip;
+  chip.qubits.assign(6, ChipQubit{0.02, true});
+  chip.qubits[0].readoutError = 0.10;
+  chip.qubits[1].readoutError = 0.001;
+  chip.qubits[2].readoutError = 0.12;
+  chip.qubits[4].readoutError = 0.01;
+  for (int a = 0; a < 5; ++a)
+    chip.links.push_back({a, a + 1, 0.01, true});
+  Region r = usableRegion(chip);
+
+  Patch p = growPatch(r, chip, 4, 3);
+  CHECK((p.ibmId == std::vector<int>{4, 3, 5}),
+        "best-first: equal costs go to the lowest id");
+  CHECK(near(p.forecast, 0.99 * (0.98 * 0.99) * (0.98 * 0.99)),
+        "forecast = product of (1 - readout) and (1 - cz of the parent link)");
+  CHECK((growPatch(r, chip, 1, 6).ibmId == std::vector<int>{1, 0, 2, 3, 4, 5}),
+        "best-first from 1: the cheaper neighbour first, the rest in reach");
+  CHECK(growPatch(r, chip, 4, 99).ibmId.size() == 6,
+        "a limit above the region size gives the whole region");
+  CHECK(throws([&] { growPatch(r, chip, 9, 3); }), "bad root throws");
+
+  CHECK(chooseRoot(r, chip, 3) == 4,
+        "root = best 3-qubit patch, not the best single qubit");
+  // Roots 3, 4 and 5 all grow the patch {3, 4, 5} over the same links:
+  CHECK(near(growPatch(r, chip, 3, 3).forecast, p.forecast) &&
+            near(growPatch(r, chip, 5, 3).forecast, p.forecast),
+        "roots inside one patch give the same forecast");
+  // so the tie above went to the lowest readout error (4). Without that:
+  chip.qubits[4].readoutError = 0.02;
+  CHECK(chooseRoot(usableRegion(chip), chip, 3) == 3,
+        "a full tie goes to the lowest id");
+  CHECK(chooseRoot(r, chip, 1) == 1, "patch size 1: the best single qubit");
+
+  // A branch: 0 in the middle, arms 1 (good link, bad readout) and 2.
+  Chip star;
+  star.qubits.assign(4, ChipQubit{0.01, true});
+  star.qubits[1].readoutError = 0.05;
+  star.links = {{0, 1, 0.001, true}, {0, 2, 0.02, true}, {2, 3, 0.001, true}};
+  // Costs from 0: q1 0.051, q2 0.03 -> 2; then q3 0.011 beats q1.
+  CHECK((growPatch(usableRegion(star), star, 0, 4).ibmId ==
+         std::vector<int>{0, 2, 3, 1}),
+        "the cost is readout error + cz error of the best link into the patch");
+
+  // A qubit without readout error (closeUnknowns gives it 1): numbered only
+  // when nothing else is in reach, its patch forecasts 0, never the root.
+  Chip unknown = star;
+  unknown.qubits[2].readoutError = 1.0;
+  Region ur = usableRegion(unknown);
+  Patch up = growPatch(ur, unknown, 0, 4);
+  CHECK((up.ibmId == std::vector<int>{0, 1, 2, 3}) && up.forecast == 0.0,
+        "an unknown readout error is numbered late and forecasts 0");
+  CHECK(chooseRoot(ur, unknown, 2) == 0, "and is never the root");
+}
+
+// ---- 3. Numbering the whole region ------------------------------------------
 static void testNumbering(const Chip &fez) {
   Region r = usableRegion(fez);
   CHECK(r.qubits.size() == 156, "all 156 ibm_fez qubits usable");
-  bool allPrefixes = true;
-  for (int root : {0, 62, 155, 77}) {
-    Layout l = breadthFirstLayout(r, root);
-    if (l.ibmId.size() != 156 || l.ibmId[0] != root)
-      allPrefixes = false;
-    for (int k = 1; k <= 156; ++k)
-      if (!prefixConnected(l.adj, k))
+  bool allPrefixes = true, bestFirst = true;
+  for (unsigned seed : {1u, 2u, 3u}) {
+    const Chip noisy = noisyFez(seed);
+    const Region nr = usableRegion(noisy);
+    for (int root : {0, 62, 155, chooseRoot(nr, noisy)}) {
+      Layout l = bestFirstLayout(nr, noisy, root);
+      std::set<int> distinct(l.ibmId.begin(), l.ibmId.end());
+      if (l.ibmId.size() != 156 || distinct.size() != 156 || l.ibmId[0] != root)
         allPrefixes = false;
-    // Labels are a relabelling: every device link is an IBM link.
-    for (std::size_t a = 0; a < l.adj.size(); ++a)
-      for (int b : l.adj[a])
-        if (!linked(r.adj, l.ibmId[a], l.ibmId[b]))
+      for (int k = 1; k <= 156; ++k)
+        if (!prefixConnected(l.adj, k))
           allPrefixes = false;
+      // Labels are a relabelling: every device link is an IBM link.
+      for (std::size_t a = 0; a < l.adj.size(); ++a)
+        for (int b : l.adj[a])
+          if (!linked(nr.adj, l.ibmId[a], l.ibmId[b]))
+            allPrefixes = false;
+      // Each label is the cheapest qubit next to the labels before it.
+      for (int k = 1; k < 156; ++k) {
+        double chosen = 2.0, cheapest = 2.0;
+        for (int v = k; v < 156; ++v) {
+          double link = 2.0;
+          for (int u : l.adj[v])
+            if (u < k)
+              link = std::min(
+                  link, nr.linkError.at(std::minmax(l.ibmId[u], l.ibmId[v])));
+          if (link == 2.0)
+            continue;
+          const double cost = noisy.qubits[l.ibmId[v]].readoutError + link;
+          cheapest = std::min(cheapest, cost);
+          if (v == k)
+            chosen = cost;
+        }
+        if (chosen != cheapest)
+          bestFirst = false;
+      }
+    }
+    // The root's patch is at least as good as any other root's.
+    const double top =
+        growPatch(nr, noisy, chooseRoot(nr, noisy), ROOT_REGION_SIZE).forecast;
+    for (int q : nr.qubits)
+      if (growPatch(nr, noisy, q, ROOT_REGION_SIZE).forecast > top + 1e-12)
+        bestFirst = false;
   }
   CHECK(allPrefixes,
-        "every prefix 0..k-1 is connected (4 roots, k = 1..156) and links "
-        "map back to IBM links");
-  CHECK(throws([&] { breadthFirstLayout(r, 999); }), "bad root throws");
+        "every prefix 0..k-1 is connected (3 noisy chips, 4 roots, k = "
+        "1..156), labels are a permutation and links map back to IBM links");
+  CHECK(bestFirst, "each label is the cheapest reachable qubit, and no root "
+                   "has a better 10-qubit patch than the chosen one");
+  CHECK(throws([&] { bestFirstLayout(r, fez, 999); }), "bad root throws");
 
-  Layout l = breadthFirstLayout(r, 0);
+  Layout l = bestFirstLayout(r, fez, 0);
   auto text = deviceFileText(l.adj);
   CHECK(text.rfind("Number of nodes: 156\nNumber of edges: 176\n0 --> {", 0) ==
             0,
@@ -232,7 +322,7 @@ static void testNumbering(const Chip &fez) {
 // ---- 4. Assignment ---------------------------------------------------------
 static void testAssign(const Chip &fez) {
   Region r = usableRegion(fez);
-  Layout l = breadthFirstLayout(r, 0);
+  Layout l = bestFirstLayout(r, fez, 0);
 
   // Fits as is: identity.
   std::vector<std::pair<int, int>> chain;

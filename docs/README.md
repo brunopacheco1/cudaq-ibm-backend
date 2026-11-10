@@ -62,3 +62,4 @@ one "superseded by NNNN".
 | [0009](decisions/0009-route-with-cudaq-then-assign-qubits.md) | Route with CUDA-Q, then assign IBM qubits to its labels | 2026-11-10 |
 | [0010](decisions/0010-measure-all-then-keep-measured-bits.md) | Measure every qubit in allocation order, then keep the measured bits | 2026-11-10 |
 | [0011](decisions/0011-stop-when-properties-cannot-be-read.md) | Stop when `/properties` cannot be read (fail closed) | 2026-11-10 |
+| [0012](decisions/0012-root-by-best-region-best-first-numbering.md) | Root by its best 10-qubit region, best-first numbering | 2026-11-10 |

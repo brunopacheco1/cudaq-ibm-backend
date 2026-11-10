@@ -279,9 +279,9 @@ public:
   const std::string name() const override { return "ibm"; }
 
   // M3. Called by CUDA-Q at every compile (decision 0009, D3): fetch the
-  // chip (kept 60 s, see `chip` above), number it breadth-first from a
-  // low-error root, and hand CUDA-Q the device file for
-  // `qubit-mapping{device=file(%QPU_ARCH%)}`.
+  // chip (kept 60 s, see `chip` above), number it best-first from the
+  // root with the best 10-qubit patch (decision 0012), and hand CUDA-Q the
+  // device file for `qubit-mapping{device=file(%QPU_ARCH%)}`.
   std::map<std::string, std::string>
   getPipelineSubstitutions(const std::filesystem::path &) override {
     std::string path;
@@ -308,12 +308,15 @@ public:
       }
       const ibm::Region region = ibm::usableRegion(cachedChip);
       const int root = ibm::chooseRoot(region, cachedChip);
-      layout = ibm::breadthFirstLayout(region, root);
+      layout = ibm::bestFirstLayout(region, cachedChip, root);
       writeDeviceFile(ibm::deviceFileText(layout.adj));
       path = ownDeviceFile;
+      const ibm::Patch patch =
+          ibm::growPatch(region, cachedChip, root, ibm::ROOT_REGION_SIZE);
       CUDAQ_INFO("IBM: {} of {} qubits usable on {}; numbering starts at "
-                 "qubit {}",
-                 region.qubits.size(), cachedChip.qubits.size(), backend, root);
+                 "qubit {}; forecast for the first {} qubits: {:.1f}%",
+                 region.qubits.size(), cachedChip.qubits.size(), backend, root,
+                 patch.ibmId.size(), 100.0 * patch.forecast);
     }
     CUDAQ_INFO("IBM: device file for routing: {}", path);
     // Quoted like IQM does, to protect the path inside the pass option.

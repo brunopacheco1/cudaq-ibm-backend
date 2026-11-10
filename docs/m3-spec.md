@@ -241,7 +241,8 @@ only after a run of the built plugin.
 ### D1. How do we get correct physical ids despite §2.4?
 
 - **A. Prefix layout + guard (recommended for v1).** Number the chip so every prefix
-  0..k-1 is connected (breadth-first from a root qubit), and write that as the device file.
+  0..k-1 is connected (breadth-first from a root qubit; best-first since decision 0012),
+  and write that as the device file.
   With the identity start layout, a kernel with n qubits starts on 0..n-1, so every one of
   them is used. If routing borrows no extra qubit, the used set is exactly 0..n-1, packing
   changes nothing, and our name map turns 0..n-1 back into IBM ids. The helper can detect the
@@ -276,7 +277,9 @@ Recommendation: **B** (A as default). C later, if results matter.
 
 **Chosen:** C, with the score in decision 0009 (mean cz error of the root's links plus its
 readout error). The kernel size is unknown when the device file is written, so the score
-cannot depend on it.
+cannot depend on it. **Changed after the hardware run** (2026-11-10,
+[decision 0012](decisions/0012-root-by-best-region-best-first-numbering.md)): the root is
+the qubit with the best 10-qubit patch around it, and the numbering is best-first.
 
 ### D3. When to fetch the configuration
 
@@ -293,7 +296,7 @@ Recommendation: **A**, plus an override for tests: `mapping_file` target argumen
 | Step | Who | Status |
 |---|---|---|
 | D1-D3 choices | Bruno | Done |
-| Numbering rule (breadth-first) and its proof that prefixes stay connected | Bruno (review) | Written in `Layout.h` §3, to review |
+| Numbering rule (best-first since decision 0012) and its proof that prefixes stay connected | Bruno (review) | Written in `Layout.h` §2 and 3, to review |
 | `getPipelineSubstitutions`, fetch, prune, root, numbering, device file, YAML | Claude | Done, unit tested |
 | Assignment search, `$k` relabel in the converter | Claude | Done, unit tested |
 | Result bit order (`combine-measurements`, `ResultBits.h`) | Claude | Done, unit tested (§2.8) |
@@ -339,7 +342,7 @@ Every free check comes before the one step that spends QPU time.
    The score (decision 0009, item 2) looks at the root and its links only, so it cannot
    see that. Expected GHZ-5 score from these numbers: about 84% (five readouts multiply to
    about 86%, 4 to 7 cz at 0.2% each), not the 85-90% guessed below. Whether to change the
-   score is Bruno's call (asked 2026-11-10).
+   score was Bruno's call: changed after the run (decision 0012).
 3. **Hardware, one session**, with `CUDAQ_LOG_LEVEL=info` (logs the label -> qubit map and the
    ISA circuit):
    Script: `tests/run_ibm_hardware.py --ghz-mark M1 --order-mark M2 --yes-spend-qpu-time`
@@ -397,7 +400,7 @@ Every free check comes before the one step that spends QPU time.
      113 alone, with and without an `x`, and compare with a kernel that resets it first.
    - **Root rule, after the run.** Forecast for the first 5, 10 and 20 numbers on the
      same calibration (same product as above, each qubit with the link to the qubit it
-     was reached from). Computed in Python on Bruno's Mac, not yet by the plugin:
+     was reached from). Computed in Python on Bruno's Mac:
 
      | Rule | Root | 5 | 10 | 20 |
      |---|---|---|---|---|
@@ -409,5 +412,7 @@ Every free check comes before the one step that spends QPU time.
      Best-first order: the next number goes to the qubit, next to the numbered ones, with
      the lowest readout error plus cz error of its best link into them. The job does not
      stay strictly inside the first numbers (GHZ-5 used numbers 0, 1, 2, 3 and 5), so real
-     gains will be somewhat lower. Bruno's choice, asked 2026-11-10.
+     gains will be somewhat lower. **Bruno chose the last row on 2026-11-10**
+     ([decision 0012](decisions/0012-root-by-best-region-best-first-numbering.md)); it is
+     in `Layout.h` with unit tests. Not measured on hardware yet.
 4. Open the first upstream issue; fold this spec into architecture.md; delete it.
