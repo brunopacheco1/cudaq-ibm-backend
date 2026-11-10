@@ -9,8 +9,11 @@ cudaq.sample on the local simulator. Each random kernel uses only x and cx,
 so its answer is one known bitstring.
 
 For each kernel this script compiles with the target pipeline, simulates the
-OpenQASM 2 that CUDA-Q gives the helper (Qiskit), reads the classical bits
-the way IBM returns them (c[i] = i-th measure statement), and compares:
+compiled kernel (Qiskit), reads the classical bits the way IBM returns them
+(c[i] = i-th measurement), and compares. The circuit is built from the
+compiled IR, after the passes the runtime's OpenQASM 2 translation runs, and
+not from `cudaq.translate`: that function runs extra passes, so its output
+is not what the helper receives (docs/m3-spec.md, section 2.14).
 
 - OLD: the pipeline before the fix, bits read as is. Wrong when the kernel
   measures qubits out of order. The router options do not matter: the same
@@ -40,7 +43,6 @@ from pathlib import Path
 warnings.filterwarnings("ignore")
 
 import cudaq  # noqa: E402
-from cudaq.mlir._mlir_libs._quakeDialects import cudaq_runtime  # noqa: E402
 from cudaq.mlir.ir import Module  # noqa: E402
 from cudaq.mlir.passmanager import PassManager  # noqa: E402
 from qiskit import QuantumCircuit  # noqa: E402
@@ -57,6 +59,10 @@ NEW = re.search(r'jit-mid-level-pipeline: "([^"]*)"',
 OLD = NEW.replace("combine-measurements),expand-measurements,"
                   "func.func(cc-loop-unroll,canonicalize,", "")
 assert OLD != NEW, "ibm.yml.in no longer has the combine-measurements step"
+# The passes of the runtime's OpenQASM 2 translation that can change gates
+# (Pipelines.cpp, addPipelineTranslateToOpenQASM, tag 0.16.0).
+CODEGEN = ("func.func(cse,normalize-phase-placement,lower-phase,canonicalize,"
+           "expand-control-negations)")
 GEN = Path(tempfile.mkdtemp())
 FEZ = fez_device(62)
 
@@ -74,16 +80,46 @@ def make_kernel(name, sizes, body):
 
 
 def compile_bits(k, mid, device):
-    """Classical bits in statement order, and output_names qubit numbers."""
+    """Classical bits in measurement order, and output_names qubit numbers."""
     mid = mid.replace("file(%QPU_ARCH%)", device)
     _, m0 = k.prepare_call()
     m = Module.parse(str(m0), m0.context)
-    PassManager.parse(f"builtin.module({HIGH},{mid})", m0.context).run(m.operation)
-    found = re.search(r'output_names = "((?:[^"\\]|\\.)*)"', str(m))
+    PassManager.parse(f"builtin.module({HIGH},{mid},{CODEGEN})",
+                      m0.context).run(m.operation)
+    text = str(m)
+    found = re.search(r'output_names = "((?:[^"\\]|\\.)*)"', text)
     qnums = ([e[1][0] for e in json.loads(found.group(1).replace("\\22", '"'))[0]]
              if found else [])
-    qc = QuantumCircuit.from_qasm_str(
-        cudaq_runtime.translate_impl(k.uniqName, m, "openqasm2"))
+    body = text[text.index("func.func @__nvqpp__mlirgen__" + k.name):]
+    body = body[:body.index("\n  }")].splitlines()[1:]
+
+    # One qubit per allocation, numbered in order: the labels the helper sees.
+    qubit = {}
+    for line in body:
+        alloc = re.match(r"\s*(%\S+) = quake\.alloca !quake\.ref", line)
+        if alloc:
+            qubit[alloc.group(1)] = len(qubit)
+    measures = sum("quake.mz" in line for line in body)
+    qc = QuantumCircuit(len(qubit), measures)
+    bit = 0
+    for line in body:
+        if "quake.alloca" in line or "quake.dealloc" in line:
+            continue
+        op = re.match(r"\s*(?:%\S+ = )?quake\.(\w+)(.*?) : ", line)
+        if not op:
+            assert "quake." not in line, line
+            continue
+        name = op.group(1)
+        operands = [qubit[v] for v in re.findall(r"%[\w.]+", op.group(2))]
+        if name == "x" and len(operands) == 1:
+            qc.x(operands[0])
+        elif name == "x" and len(operands) == 2:
+            qc.cx(operands[0], operands[1])
+        elif name == "mz" and len(operands) == 1:
+            qc.measure(operands[0], bit)
+            bit += 1
+        else:
+            raise RuntimeError(f"unexpected operation: {line.strip()}")
     key = next(iter(BasicSimulator().run(qc, shots=1).result().get_counts()))
     return key.replace(" ", "")[::-1], qnums  # Qiskit prints c[0] right-most
 
