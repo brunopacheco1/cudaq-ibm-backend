@@ -424,4 +424,28 @@ Every free check comes before the one step that spends QPU time.
      forecast 96.47% / 91.88% / 79.74% for 5 / 10 / 20 qubits. Nine roots grow the same
      10-qubit patch and tie (124 among them, the root in the table above); the tie rule
      picks 121, the one with the lowest readout error (0.34%).
+   - **Second hardware run, with the new rule** (2026-11-10 14:01 UTC, one run, started by
+     Bruno, marks 88% and 95% set before the run, built plugin at 5a1f9b8). Both pass.
+     - GHZ-5: `00000` 471 + `11111` 434 = **90.5%** of 1000 shots, on qubits 121, 122, 123,
+       124, 125 (4 `cz`, no swap). First run: 81.2%. The gain of 9.3 points is about six
+       times the sampling error of the difference (1.5 points).
+       Full counts: `{ 00000:471 00001:19 00010:1 00011:8 00100:2 00111:3 01000:1 01011:1
+       01110:1 01111:12 10000:4 10111:10 11000:3 11010:1 11011:4 11100:2 11101:5 11110:18
+       11111:434 }`.
+     - `x(q[0]); mz(q[2]); mz(q[0])`: `10` 196 of 200 = **98.0%** again, on qubits 121,
+       122, 123.
+     - **The forecast was too high this time.** For the qubits and links used it gives
+       95.0% (same calibration file); measured 90.5%, 4.5 points lower, well outside the
+       sampling error (0.9). The first run was 1.7 points under its forecast. So the
+       product of readout and cz success rates ranks regions correctly here but
+       overstates the result by a few points. Not in the model: 15 `sx` gates, idle time
+       while the chain is built, measuring five qubits at once, and calibration values
+       that were 14 hours old **[U]** which of these matters most.
+     - **The fifth qubit was not the fifth number.** The best-first order from 121 is 121,
+       122, 123, 124, 136, 143, ...; the job used 125, number 14, with the worst readout
+       error of the five (2.4%; `00001` and `11110` are the largest wrong outcomes, 37
+       shots). Reason: 136 hangs off 123, not 124, and the label search (`assignQubits`)
+       takes the first placement that fits; it does not look for the cheapest. The chain
+       121, 122, 123, 136, 143 (numbers 0, 1, 2, 4, 5) also fits and forecasts 96.6%
+       instead of 95.0%. A search that prefers low numbers is a possible later step.
 4. Open the first upstream issue; fold this spec into architecture.md; delete it.
