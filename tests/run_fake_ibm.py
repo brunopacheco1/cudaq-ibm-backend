@@ -147,21 +147,42 @@ except Exception as e:  # noqa: BLE001
 else:
     raise AssertionError("a job was sent although /properties failed")
 
-# Probe, not a test: does emulate=True work with this pipeline? The review
-# expects it to fail (decision 0010). Tell Claude what this prints.
-# The url arguments matter: without them the plugin logs in to the real IBM
-# service, even with emulate=True (it did, with the fake key, on 2026-11-10).
+# M4: cudaq.observe is refused with a clear sentence, before CUDA-Q compiles
+# the kernel (docs/m4-spec.md D7). Without that, this 5-qubit star crashed
+# Python inside CUDA-Q (F6). No job is sent, and sample still works after.
+cudaq.set_target("ibm",
+                 backend="ibm_fixed_samples",
+                 url=f"http://localhost:{PORT}/api",
+                 iam_url=f"http://localhost:{PORT}/identity/token")
+kernel = cudaq.make_kernel()
+q = kernel.qalloc(5)
+kernel.h(q[0])
+for i in range(1, 5):
+    kernel.cx(q[0], q[i])
+try:
+    cudaq.observe(kernel, cudaq.spin.z(0) * cudaq.spin.z(1))
+except Exception as e:  # noqa: BLE001
+    assert "cudaq.observe is not supported on the 'ibm' target" in str(e), e
+else:
+    raise AssertionError("cudaq.observe did not fail on the ibm target")
+kernel.mz(q)
+counts = cudaq.sample(kernel, shots_count=3)
+assert counts["10000"] == 2 and counts["01000"] == 1, counts
+print("OK: cudaq.observe is refused with a clear error; sample still works.")
+
+# M4: emulate=True is refused when the target is set (docs/m4-spec.md D6),
+# before the plugin reads credentials or talks to any server.
+# The url arguments matter all the same: without them a plugin that did not
+# refuse would log in to the real IBM service (it did, with the fake key, on
+# 2026-11-10).
 try:
     cudaq.set_target("ibm",
                      emulate=True,
-                     backend="ibm_fake",
+                     backend="ibm_fixed_samples",
                      url=f"http://localhost:{PORT}/api",
                      iam_url=f"http://localhost:{PORT}/identity/token")
-    kernel = cudaq.make_kernel()
-    q = kernel.qalloc(3)
-    kernel.x(q[0])
-    kernel.cx(q[0], q[2])
-    kernel.mz(q)
-    print("PROBE emulate=True: worked,", cudaq.sample(kernel, shots_count=10))
 except Exception as e:  # noqa: BLE001
-    print("PROBE emulate=True: failed:", str(e).splitlines()[0][:200])
+    assert "does not support emulate=True" in str(e), e
+    print("OK: emulate=True is refused:", str(e).splitlines()[0][:70])
+else:
+    raise AssertionError("set_target('ibm', emulate=True) did not fail")

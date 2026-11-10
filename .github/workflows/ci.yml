@@ -63,7 +63,7 @@ jobs:
           python-version: "3.12"
       - run: pip install "cudaq==${{ matrix.cudaq-version }}" fastapi uvicorn python-multipart
       - run: plugin/build_against_wheel.sh
-      - name: Run the six cases against the fake IBM server
+      - name: Run the protocol cases against the fake IBM server
         run: |
           python tests/fake_ibm_server.py 62455 > fake-server.log 2>&1 &
           for i in $(seq 1 60); do
