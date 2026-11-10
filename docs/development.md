@@ -122,6 +122,17 @@ line shows that `emulate=True` still fails ([architecture.md](architecture.md) ย
 Add `CUDAQ_LOG_LEVEL=info` to see the chip numbering, the label -> qubit map and the ISA
 circuit the plugin sends. Stop an older fake server on port 62455 first.
 
+Token expiry while polling ([architecture.md](architecture.md) ยง8 item 1), one shell. The
+script starts its own fake server on port 62456 with tokens that live 12 s:
+
+```bash
+cd /work/cuda-quantum
+python3 /src/cudaq-ibm-backend/tests/run_token_expiry.py
+```
+
+It prints the server log and one `RESULT` line: a failed poll (HTTP 401) on CUDA-Q 0.16.0,
+a finished job on a CUDA-Q that asks for the headers on every poll.
+
 The four unit tests need no CUDA-Q and also run in CI. From the repository root:
 
 ```bash

@@ -119,3 +119,45 @@ def test_results_report_num_bits_of_the_circuit():
     reg = client.get(f"/api/v1/jobs/{job_id}/results",
                      headers=AUTH).json()["results"][0]["data"]["c"]
     assert reg["num_bits"] == 1 and reg["samples"] == fake.SAMPLES
+
+
+def test_expiring_token_mode(monkeypatch):
+    """FAKE_IBM_TOKEN_TTL: every login gets a new token, and a token stops
+    working once its time is over (tests/run_token_expiry.py)."""
+    import time
+
+    monkeypatch.setattr(fake, "TOKEN_TTL", 0.2)
+    monkeypatch.setattr(fake, "issued", {})
+
+    def login() -> dict:
+        r = client.post("/identity/token",
+                        data={"grant_type": fake.GRANT_TYPE,
+                              "apikey": fake.API_KEY})
+        assert r.status_code == 200
+        return r.json()
+
+    def get(token: str):
+        return client.get("/api/v1/backends/ibm_fez/configuration",
+                          headers={"Authorization": f"Bearer {token}",
+                                   "Service-CRN": fake.CRN})
+
+    first = login()
+    assert first["access_token"] == "fake-token-1"
+    assert first["expires_in"] == 1  # never 0: the plugin would not cache it
+    assert get("fake-token-1").status_code == 200
+    # The fixed token of the normal mode is not accepted in this mode.
+    assert get(fake.TOKEN).status_code == 401
+
+    time.sleep(0.3)
+    late = get("fake-token-1")
+    assert late.status_code == 401 and "expired" in late.json()["detail"]
+
+    assert login()["access_token"] == "fake-token-2"
+    assert get("fake-token-2").status_code == 200
+
+
+def test_normal_mode_keeps_one_token_for_ever():
+    assert fake.TOKEN_TTL == 0
+    r = client.post("/identity/token",
+                    data={"grant_type": fake.GRANT_TYPE, "apikey": fake.API_KEY})
+    assert r.json() == {"access_token": fake.TOKEN, "expires_in": 3600}

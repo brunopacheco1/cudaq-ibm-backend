@@ -9,8 +9,10 @@
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
 
+import os
 import re
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,7 +23,11 @@ API_KEY = "test-key"
 CRN = "test-crn"
 TOKEN = "fake-token"
 GRANT_TYPE = "urn:ibm:params:oauth:grant-type:apikey"
-POLLS_BEFORE_DONE = 2
+POLLS_BEFORE_DONE = int(os.environ.get("FAKE_IBM_POLLS_BEFORE_DONE", "2"))
+# Expiring-token mode (tests/run_token_expiry.py). 0 = off: one token, valid
+# for ever. With N > 0 every login gets a new token that stops working after
+# N seconds, as IBM's IAM tokens do after about an hour.
+TOKEN_TTL = float(os.environ.get("FAKE_IBM_TOKEN_TTL", "0"))
 # Two qubits, three shots. IBM is little-endian: "0x1" means qubit 0 = 1.
 SAMPLES = ["0x1", "0x1", "0x2"]
 
@@ -106,10 +112,25 @@ def check_isa(qasm3: str) -> None:
             if not usable(a, b):
                 raise HTTPException(400, f"cz on broken pair: {line!r}")
 jobs: dict[str, dict[str, Any]] = {}
+# Expiring-token mode: token -> the time.monotonic() at which it stops working.
+issued: dict[str, float] = {}
+
+
+def bearer(request: Request) -> str:
+    return request.headers.get("authorization", "").removeprefix("Bearer ")
 
 
 def check_auth(request: Request) -> None:
-    if request.headers.get("authorization") != f"Bearer {TOKEN}":
+    if TOKEN_TTL > 0:
+        token = bearer(request)
+        if token not in issued:
+            raise HTTPException(401, "missing or wrong Bearer token")
+        late = time.monotonic() - issued[token]
+        if late > 0:
+            print(f"[fake-ibm] 401 for {request.url.path}: {token} expired "
+                  f"{late:.1f} s ago")
+            raise HTTPException(401, f"token expired {late:.1f} s ago")
+    elif request.headers.get("authorization") != f"Bearer {TOKEN}":
         raise HTTPException(401, "missing or wrong Bearer token")
     if request.headers.get("service-crn") != CRN:
         raise HTTPException(401, "missing or wrong Service-CRN header")
@@ -126,6 +147,11 @@ async def iam_token(request: Request):
         raise HTTPException(400, f"bad grant_type: {form.get('grant_type')}")
     if form.get("apikey") != API_KEY:
         raise HTTPException(400, "bad apikey")
+    if TOKEN_TTL > 0:
+        token = f"{TOKEN}-{len(issued) + 1}"
+        issued[token] = time.monotonic() + TOKEN_TTL
+        print(f"[fake-ibm] login: issued {token}, valid for {TOKEN_TTL:g} s")
+        return {"access_token": token, "expires_in": max(1, round(TOKEN_TTL))}
     return {"access_token": TOKEN, "expires_in": 3600}
 
 
@@ -201,7 +227,8 @@ async def job_status(job_id: str, request: Request):
     jobs[job_id]["polls"] += 1
     done = jobs[job_id]["polls"] > POLLS_BEFORE_DONE
     status = "Completed" if done else "Running"
-    print(f"[fake-ibm] poll {jobs[job_id]['polls']} -> {status}")
+    who = f" with {bearer(request)}" if TOKEN_TTL > 0 else ""
+    print(f"[fake-ibm] poll {jobs[job_id]['polls']}{who} -> {status}")
     return {"id": job_id, "state": {"status": status}}
 
 
