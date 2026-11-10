@@ -212,7 +212,7 @@ Content-Type:  application/json
 | `plugin/CMakeLists.txt`, `plugin/python/*`, `plugin/pyproject.toml.in` | Build as a CUDA-Q external project; Python package with a `cudaq.backends` entry point | From `mock_rest`; still named `cudaq_example_ibm` (M4) |
 | `tests/fake_ibm_server.py`, `tests/test_fake_server.py`, `tests/run_fake_ibm.py` | Fake IBM with the `ibm_fez` wiring, its own tests (CI), and end-to-end runs through the built plugin (§7) | Done (M3) |
 | `tests/isa_simulator.py`, `tests/test_isa_simulator.py` | Statevector simulator for native-gate circuits (`rz`, `sx`, `x`, `cz`, measurements at the end), no noise; the fake server answers jobs with it. The quantum functions are Bruno's. Its tests compare it with Qiskit (CI) | Done (M4) |
-| `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 19 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
+| `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 25 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
 | `src/cudaq_ibm/` | Phase 1 Python prototype (uses Qiskit for the ISA step) | Done; reference for the C++ code |
@@ -286,19 +286,21 @@ Free checks first; only the last one spends QPU time.
     on the circuit. `FAKE_IBM_LOG_CIRCUITS=1` prints every circuit a job sends.
 - `tests/run_fake_ibm.py`: needs the built plugin, from the dev container or from
   `plugin/build_against_wheel.sh` ([development.md](development.md) §6; CI job `plugin`
-  runs it on every push since M4). Six cases against `ibm_fixed_samples`, each prints
+  runs it on every push since M4). Eight cases against `ibm_fixed_samples`, each prints
   `OK`: Bell pair (`{ 10:2 01:1 }`, which proves the bit reversal), the gate rules, a
   20-qubit GHZ (routing, device file, label search), a kernel that measures out of order,
-  the `mapping_file` override, and a backend without `/properties` (must stop). One `PROBE`
-  line shows that `emulate=True` still fails (§8). Passed 2026-11-10 **[V]**: GHZ-20 was sent
-  with 28 `cz` and no swap.
+  the `mapping_file` override, a backend without `/properties` (must stop), `cudaq.observe`
+  (refused, and `sample` works after it) and `emulate=True` (refused), see §8 item 7.
+  Passed 2026-11-10 **[V]**: GHZ-20 was sent with 28 `cz` and no swap.
 - `tests/run_fake_ibm_results.py`: needs the built plugin; CI job `plugin` runs it. It
-  starts its own fake server (port 62457, jobs done at the first poll) and runs 19 kernels
+  starts its own fake server (port 62457, jobs done at the first poll) and runs 25 kernels
   twice: on CUDA-Q's simulator (`qpp-cpu`) and through the plugin against the simulating
   server. The results must agree:
   - 12 random kernels of `x` and `cx` on 2 to 7 qubits, measured in full, in part and out
     of order, or with no `mz`. Each has one right answer, which the script also computes
     with plain bit logic.
+  - 5 kernels with qubits no gate touches (one with no gate at all), same check, and a GHZ
+    state with an idle qubit in the middle (§8 item 6).
   - GHZ on 3, 8 and 16 qubits: only all-zeros and all-ones, about half each.
   - Two kernels with rotations: the M2 gate-rule kernel, and a 3-qubit kernel with every
     one- and two-qubit gate of the kernel builder, also with `mz` on two qubits and with no
@@ -308,9 +310,7 @@ Free checks first; only the last one spends QPU time.
   Passed 2026-11-10 **[V]** with `cudaq` 0.16.0 and 0.16.0.post1; the script takes about 3
   seconds. Planted faults, same day **[V]**: a wrong `ry` rule, a wrong `z` rule, a `cx`
   rule with the Hadamards on the control, a simulator `rz` with half the angle and a
-  reversed classical register were each reported. Three limits:
-  - A kernel with a qubit no gate touches still returns a bit string that is too short
-    (§8 item 6). The script runs one and prints it as a known defect; it does not fail.
+  reversed classical register were each reported. Two limits:
   - The 3-qubit kernel was picked by a search (`experiments/m4_test_kernel_search.py`), so
     that a mistake in any one kind of gate moves the distribution by at least 0.117. A
     first kernel written by hand let the wrong `ry` rule pass: its two `ry` gates
@@ -318,7 +318,7 @@ Free checks first; only the last one spends QPU time.
   - No test of this kind can see the mirror image of a circuit. Changing the sign of every
     `rz` angle at once gives the same probabilities for every outcome (it flips the Y axis
     of every qubit, and a measurement along Z from the state 00...0 cannot tell). Run
-    2026-11-10 **[V]**: with that change in the simulator all 19 kernels still passed. The
+    2026-11-10 **[V]**: with that change in the simulator every kernel still passed. The
     unit test of the rules (`test_qasm2_to_isa`, matrices up to a global phase) does see
     it.
 - `tests/run_token_expiry.py`: needs the built plugin. Starts the fake server with
@@ -362,20 +362,32 @@ How to run them: [development.md](development.md) §4.
    | Dense (tree + 50%) | either | 0 | 0 | 0 | 0 |
 
    Worst time about 1.2 s. Routed circuits are sparse, so: fine up to about 100 qubits.
-6. **A kernel without `mz` loses the bits of qubits it never touches.** CUDA-Q removes the
-   idle qubit (`dqe`) before it adds the missing measurements **[V]** `Compiler.cpp:421,
-   467-473`: a 4-qubit kernel that uses 2 qubits returns 2-bit strings. CUDA-Q's
-   specification allows it: an allocated but unused qubit "may not appear in the implicit
-   measurement results" **[V]** `algorithmic_primitives.rst`. `oqc` and `anyon` do the same;
-   the simulator, quantinuum, ionq, infleqtion and braket do not **[V]**
-   `experiments/m3_idle_qubit.py`. `add-measurements` at the start of the mid-level
-   pipeline fixes it at pass level **[V]**; in the built plugin **[U]**. Planned for M4.
-7. **`emulate=True` fails, `observe` is untested.** In emulation CUDA-Q takes
-   `combine-measurements` out of the pipeline and runs it at the end **[V]**
-   `Compiler.cpp:307-319`. On a routed circuit that late pass fails: "Multiple qalloc
-   statements found", then "Remote rest platform Quake lowering failed" **[V]** built plugin,
-   2026-11-10. The plugin also logs in to IBM before it emulates. Both are not supported
-   ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)); planned for M4.
+6. **Fixed in M4: a qubit no gate touches keeps its bit.** Until 2026-11-10 the pipeline had
+   the `dqe` pass (taken over from `iqm.yml`), which removes an idle qubit before the
+   missing measurements are added **[V]** `Compiler.cpp:421, 467-473`: a 4-qubit kernel
+   with one idle qubit returned `111` where the simulator returns `1011` **[V]** built
+   plugin. CUDA-Q's specification allows that ("may not appear in the implicit measurement
+   results" **[V]** `algorithmic_primitives.rst`; `oqc` and `anyon` do the same
+   **[V]** `experiments/m3_idle_qubit.py`), but it surprises. The pipeline now has no `dqe`:
+   every allocated qubit is placed on the chip and measured, so an idle qubit costs one
+   chip qubit and one readout. Six kernels in `tests/run_fake_ibm_results.py` check it
+   **[V]** 2026-11-10. GHZ-20 is still sent with 28 `cz`.
+7. **`emulate=True` and `cudaq.observe` are refused with a clear error** (M4, Bruno's
+   decisions D6 and D7 in [m4-spec.md](m4-spec.md)).
+   - `emulate=True`: `initialize` throws when the target is set, before it reads
+     credentials or talks to a server. Why not supported: in emulation CUDA-Q simulates its
+     own compiled kernel and calls none of this plugin's gate rewrite, qubit choice or
+     result decoding; and with this target's router the emulated bit order was wrong in a
+     test **[V]** m4-spec F5. Before M4 it failed inside CUDA-Q with "Multiple qalloc
+     statements found" (`combine-measurements` runs late in emulation **[V]**
+     `Compiler.cpp:307-319`), after logging in to IBM.
+   - `cudaq.observe`: `getPipelineSubstitutions` throws. It is the first plugin code CUDA-Q
+     calls for a launch, before it compiles the kernel, and `cudaq::getExecutionContext()`
+     (`common/ExecutionContext.h`, exported by `libcudaq-common.so`) tells it the call is
+     an `observe` **[V]** built plugin, 2026-11-10: a 2-qubit kernel, a kernel with an idle
+     qubit and the 5-qubit star that used to crash Python (m4-spec F6) all get the error,
+     no job is sent, and `sample` works afterwards. Expectation values can be computed
+     from `sample` counts.
 8. **The label search takes the first placement that fits, not the cheapest**, and **the
    logged forecast is an upper bound** (§9.8).
 

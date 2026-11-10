@@ -19,6 +19,7 @@
 #include "Layout.h"
 #include "Qasm2ToIsa.h"
 #include "ResultBits.h"
+#include "common/ExecutionContext.h"
 #include "common/RestClient.h"
 #include "common/ServerHelper.h"
 #include "nlohmann/json.hpp"
@@ -284,6 +285,17 @@ public:
   // device file for `qubit-mapping{device=file(%QPU_ARCH%)}`.
   std::map<std::string, std::string>
   getPipelineSubstitutions(const std::filesystem::path &) override {
+    // This is the first of our code CUDA-Q calls when a kernel is launched,
+    // before it compiles the kernel. cudaq.observe is refused here: CUDA-Q
+    // would otherwise fail later in its own compiler with an error about
+    // "qalloc", or crash Python (docs/m4-spec.md F6 and D7).
+    if (const auto *context = cudaq::getExecutionContext();
+        context != nullptr && context->name == "observe")
+      throw std::runtime_error(
+          "IBM: cudaq.observe is not supported on the 'ibm' target yet. "
+          "Use cudaq.sample: rotate the qubits into the measurement basis "
+          "of each term of the observable, and compute the expectation "
+          "value from the counts.");
     std::string path;
     if (auto it = backendConfig.find("mapping_file");
         it != backendConfig.end() && !it->second.empty()) {
@@ -326,6 +338,16 @@ public:
   // §4 initialize. Called on set_target and again inside future::get().
   void initialize(BackendConfig config) override {
     CUDAQ_INFO("Initializing IBM backend.");
+    // emulate=True is refused (docs/m4-spec.md D6). In emulation CUDA-Q
+    // simulates its own compiled kernel and never calls the gate rewrite,
+    // the qubit assignment or the result decoding of this plugin, and with
+    // this target's router the bit order of the result can be wrong (F5).
+    if (auto it = config.find("emulate");
+        it != config.end() && it->second == "true")
+      throw std::runtime_error(
+          "IBM: the 'ibm' target does not support emulate=True. To simulate "
+          "a kernel, use a simulator target, for example "
+          "cudaq.set_target(\"qpp-cpu\").");
     backendConfig = config; // keep everything CUDA-Q passes along
 
     backend = valueOr(config, "backend", DEFAULT_BACKEND);

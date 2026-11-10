@@ -118,12 +118,13 @@ cd /work/cuda-quantum
 python3 /src/cudaq-ibm-backend/tests/run_fake_ibm.py
 ```
 
-It runs six cases and prints one `OK` line for each: a Bell pair; a kernel with `rx`, `ry`,
+It runs eight cases and prints one `OK` line for each: a Bell pair; a kernel with `rx`, `ry`,
 `z`, `y`, `s`, `t` and `u3`; a 20-qubit GHZ (routing); a kernel that measures out of order; the
-`mapping_file` override; and a backend without `/properties`, which must stop. A last `PROBE`
-line shows that `emulate=True` still fails ([architecture.md](architecture.md) §8 item 7).
-These six check the protocol with fixed samples. The results themselves are checked by a
-second script, which starts its own fake server and compares 19 kernels with CUDA-Q's
+`mapping_file` override; a backend without `/properties`, which must stop; and
+`cudaq.observe` and `emulate=True`, which must be refused with a clear error
+([architecture.md](architecture.md) §8 item 7).
+These eight check the protocol with fixed samples. The results themselves are checked by a
+second script, which starts its own fake server and compares 25 kernels with CUDA-Q's
 simulator ([architecture.md](architecture.md) §7):
 
 ```bash
@@ -206,8 +207,8 @@ python3 -m venv .venv-plugin && source .venv-plugin/bin/activate
 pip install cudaq==0.16.0 fastapi uvicorn python-multipart
 plugin/build_against_wheel.sh              # writes build/external/ibm
 python3 tests/fake_ibm_server.py 62455 &   # the fake IBM server
-python3 tests/run_fake_ibm.py              # six OK lines, as in §4
-python3 tests/run_fake_ibm_results.py      # 19 OK lines: results against CUDA-Q's simulator
+python3 tests/run_fake_ibm.py              # eight OK lines, as in §4
+python3 tests/run_fake_ibm_results.py      # 25 OK lines: results against CUDA-Q's simulator
 ```
 
 The first build downloads the headers (about 50 MB, kept in `build/cache`); later builds

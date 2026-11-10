@@ -20,6 +20,7 @@ Three kinds of kernels:
 - x and cx only, at random. Such a circuit has exactly one right answer, and
   it can also be computed with plain bit logic, which this script does as a
   third opinion. Measured in full, in part and out of order, and not at all.
+  Some have qubits that no gate touches: each must still give its bit.
 - GHZ states: only 00...0 and 11...1 may come out, about half each.
 - kernels with rotations: the two outcome distributions must be close.
 
@@ -104,9 +105,8 @@ def bit_logic(n: int, ops: list[tuple], measure) -> str:
 
 
 def random_x_cx(rng: random.Random, n: int) -> list[tuple]:
-    """About 3n gates. Every qubit gets at least one gate: a qubit without
-    any gate is a known defect of today's pipeline (docs/m4-spec.md F4),
-    fixed and tested in step 3, and probed at the end of this script."""
+    """About 3n gates, and at least one on every qubit (IDLE_CASES has the
+    kernels with untouched qubits)."""
     ops: list[tuple] = []
     for _ in range(3 * n):
         if n > 1 and rng.random() < 0.6:
@@ -159,17 +159,28 @@ EVERY_GATE = [("ry", 1.1, 0), ("rx", 0.7, 1), ("ry", -1.9, 2), ("tdg", 1),
               ("r1", -1.5, 2), ("x", 2), ("rx", 0.6, 0), ("ry", 1.0, 2),
               ("r1", 1.2, 0), ("rx", -1.7, 1), ("cz", 2, 1)]
 DISTRIBUTION_CASES = [
+    ("GHZ on q0,q2,q3 with q1 idle", 4,
+     [("h", 0), ("cx", 0, 2), ("cx", 2, 3)], None),
     ("every M2 gate rule (2 qubits)", 2, GATE_RULES, None),
     ("every gate of the kernel builder (3 qubits)", 3, EVERY_GATE, None),
     ("every gate, mz on q2,q0 only", 3, EVERY_GATE, [2, 0]),
     ("every gate, no mz", 3, EVERY_GATE, "none"),
 ]
 GHZ_SIZES = (3, 8, 16)
-# A qubit no gate touches. Known defect of today's pipeline (the `dqe` pass
-# removes the qubit, docs/m4-spec.md F4 and decision D5). Step 3 fixes it;
-# until then this kernel is run and reported, but does not fail the script.
-IDLE_QUBIT = ("idle qubit q1 (4 qubits, no mz)", 4, [("x", 0), ("cx", 0, 2),
-                                                     ("x", 3)], "none")
+# Qubits no gate touches. With the `dqe` pass in the pipeline (until M4
+# step 3) CUDA-Q removed such a qubit and the answer had one bit too few:
+# the first kernel below returned 111 instead of 1011 (docs/m4-spec.md F4,
+# decision D5).
+IDLE_CASES = [
+    ("idle q1 (4 qubits, no mz)", 4,
+     [("x", 0), ("cx", 0, 2), ("x", 3)], "none"),
+    ("idle q1 (4 qubits, mz on all)", 4,
+     [("x", 0), ("cx", 0, 2), ("x", 3)], None),
+    ("idle q0 and q3 (4 qubits, mz on q3,q1)", 4,
+     [("x", 1), ("cx", 1, 2)], [3, 1]),
+    ("idle last qubit (3 qubits, no mz)", 3, [("x", 0), ("cx", 0, 1)], "none"),
+    ("no gate at all (2 qubits, mz on all)", 2, [], None),
+]
 
 
 # ---- comparing ------------------------------------------------------------
@@ -194,17 +205,17 @@ def main() -> int:
     warnings.simplefilter("ignore")
     import cudaq
 
-    exact = exact_cases()
+    exact = exact_cases() + IDLE_CASES
     ghz_cases = [(f"GHZ-{n}", n, ghz(n), None) for n in GHZ_SIZES]
     everything = exact + ghz_cases + DISTRIBUTION_CASES
     kernels = {name: build(cudaq, n, ops, measure)
-               for name, n, ops, measure in everything + [IDLE_QUBIT]}
+               for name, n, ops, measure in everything}
 
     # 1. The reference answers, on CUDA-Q's simulator.
     cudaq.set_target("qpp-cpu")
     cudaq.set_random_seed(SEED)
     reference = {}
-    for name, *_ in exact + [IDLE_QUBIT]:
+    for name, *_ in exact:
         reference[name] = as_dict(cudaq.sample(kernels[name],
                                                shots_count=SHOTS_EXACT))
     for name, *_ in ghz_cases + DISTRIBUTION_CASES:
@@ -256,17 +267,6 @@ def main() -> int:
                   f"distance {d:.4f} from CUDA-Q's simulator (limit "
                   f"{MAX_DISTANCE}; a reversed answer would be "
                   f"{from_mirror:.2f})")
-
-        name, n, ops, measure = IDLE_QUBIT
-        try:
-            got = str(as_dict(cudaq.sample(kernels[name],
-                                           shots_count=SHOTS_EXACT)))
-        except Exception as error:  # noqa: BLE001
-            got = "an error: " + str(error).splitlines()[0][:120]
-        want = {bit_logic(n, ops, measure): SHOTS_EXACT}
-        assert reference[name] == want, (reference[name], want)
-        print(f"KNOWN DEFECT, fixed in step 3 (not counted): {name}: "
-              f"right is {want}, the plugin returns {got}")
     finally:
         lines = stop_server(process, log)
 

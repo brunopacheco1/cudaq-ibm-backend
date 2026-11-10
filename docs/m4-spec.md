@@ -144,7 +144,7 @@ Recommended: **A.** It also removes the cause of the wrong expectation values in
 - **A. Refuse it with a clear sentence** ("the ibm target does not emulate; use the default
   simulator, or the fake server for an end-to-end run"). About an hour: the helper's
   `initialize` receives the `emulate` setting **[V]** by reading `qpu_utils.cpp:166` and
-  `BaseRemoteRESTQPU.h:203`, **[U]** by a run.
+  `BaseRemoteRESTQPU.h:203`, and **[V]** by a run on 2026-11-10 (step 3).
 - **B. Support it**: in emulation the helper switches the router to CUDA-Q's default
   start layout, where results are right (F5). About a day, with a random-kernel test in CI.
 - **C.** Leave today's compiler error.
@@ -175,6 +175,10 @@ is "shots with even parity minus shots with odd parity, divided by shots". Limit
 large kernels `observe` may still crash instead of printing our error **[V]** F6; whether
 the helper can detect `observe` earlier is **[U]**, one hour to try.
 
+Tried in step 3, 2026-11-10 **[V]**: it can. `getPipelineSubstitutions` runs before CUDA-Q
+compiles the kernel and `cudaq::getExecutionContext()` names the call, so `observe` gets our
+error for small and large kernels, with no crash ([architecture.md](architecture.md) §8 item 7).
+
 **Decision: A, then C.**
 
 ## 4. What gets built
@@ -185,7 +189,7 @@ Smallest useful step first; each step is one PR.
 |---|---|---|
 | 1 | CI job: build the plugin against the wheel (F1), start the fake server, run the six existing cases. Matrix: `cudaq` 0.16.0 and 0.16.0.post1. **Done 2026-11-10**: `plugin/build_against_wheel.sh`, CI job `plugin`, [development.md](development.md) §6 | Claude |
 | 2 | Simulating fake server: `simulate()` (D4), server plumbing, a backend name that keeps the fixed samples for the bit-order case. Tests compare with CUDA-Q's simulator: random `x`/`cx` kernels (one right answer each), GHZ, the gate-rule kernel (so `rx`, `ry`, `u3`, `s`, `t` are checked for physics end to end, not only accepted), partial and missing `mz`. **Done 2026-11-10**: `tests/isa_simulator.py` (Bruno's eight functions, compared with Qiskit), the server answers with it, `tests/run_fake_ibm_results.py` in CI job `plugin`; what it checks and its limits: [architecture.md](architecture.md) §7 | `simulate()`: Bruno. Rest: Claude |
-| 3 | Pipeline: remove `dqe` (D5), idle-qubit test, clear errors for `emulate=True` and `observe` (D6, D7), the `sample`-based expectation example | Pipeline and errors: Claude. Example: Bruno |
+| 3 | Pipeline: remove `dqe` (D5), idle-qubit test, clear errors for `emulate=True` and `observe` (D6, D7), the `sample`-based expectation example. **Pipeline and errors done 2026-11-10** ([architecture.md](architecture.md) §8 items 6 and 7); the example is open | Pipeline and errors: Claude. Example: Bruno |
 | 4 | Packaging: rename `cudaq_example_ibm`, wheels for Linux x86_64 and aarch64 built in a `manylinux_2_28` image (D2), release workflow to a GitHub Release (D3), trademark attribution in the README, `--install-nvqpp` check, README install section. Remove the inherited lit test `check-ibm`: it needs a source build, and steps 1 and 4 cover what it checked | Claude |
 | 5 | You: one kernel on `ibm_fez` from the installed wheel. Then close M4: facts to `architecture.md`, choices to `decisions/`, delete this spec | Bruno, then Claude |
 
@@ -212,5 +216,5 @@ version and keeps the mode.
 | No macOS wheel: on a Mac the plugin runs only in a Linux container | Open item (D2), after M4 |
 | The package name contains "IBM" | D3: settle before PyPI |
 | The numpy simulator and the plugin share a wrong idea about bit order | The reference is CUDA-Q's simulator on the original kernel, and the two hardware runs of M3 already confirmed the order on a real chip |
-| Without `dqe`, something else in the pipeline changes **[U]** | The random-kernel tests of step 2 exist before step 3 changes the pipeline |
+| Without `dqe`, something else in the pipeline changes | **[V]** 2026-11-10: the 19 result checks of step 2 and the six protocol cases pass unchanged without `dqe`; GHZ-20 keeps its 28 `cz` |
 | CUDA-Q changes `sample`/`observe` (F8, PR 5875) | D6 and D7 avoid building on that code now. Our own bit-order rule ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)) will also need a second look when that release comes; the result tests of step 2 will show at once if it breaks. Read the PR before any design of `emulate` or `observe` |

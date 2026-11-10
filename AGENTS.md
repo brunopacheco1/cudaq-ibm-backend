@@ -42,8 +42,8 @@ The C++ plugin builds in two ways ([docs/development.md](docs/development.md)):
 pip install cudaq==0.16.0 fastapi uvicorn python-multipart
 plugin/build_against_wheel.sh                 # writes build/external/ibm
 python3 tests/fake_ibm_server.py 62455 &      # fake IBM, never the real one
-python3 tests/run_fake_ibm.py                 # six OK lines (protocol, fixed samples)
-python3 tests/run_fake_ibm_results.py         # 19 OK lines (results; starts its own server)
+python3 tests/run_fake_ibm.py                 # eight OK lines (protocol, fixed samples)
+python3 tests/run_fake_ibm_results.py         # 25 OK lines (results; starts its own server)
 ```
 
 The other way is inside a CUDA-Q 0.16 source build in NVIDIA's Linux dev container. Only
