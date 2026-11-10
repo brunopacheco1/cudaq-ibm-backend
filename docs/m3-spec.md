@@ -179,9 +179,11 @@ moved the fix to M4 on 2026-11-10, to be done with `emulate=True` and `observe`
 
 In emulation CUDA-Q takes `combine-measurements` out of the pipeline and runs it at the end
 **[V]** `Compiler.cpp:307-319`. On a routed circuit that late pass fails with "Multiple qalloc
-statements found" **[V]** at pass level, pip CUDA-Q; **[U]** in the built plugin
-(`tests/run_fake_ibm.py` ends with a probe). `cudaq.observe` on this target is untested
-**[U]**. Both are "not supported in M3" (decision 0010).
+statements found" **[V]** at pass level, pip CUDA-Q, and **[V]** in the built plugin
+(2026-11-10, probe at the end of `tests/run_fake_ibm.py`: "Remote rest platform Quake
+lowering failed", after "Multiple qalloc statements found"). The plugin also logs in to IBM
+before it emulates, so `emulate=True` needs credentials today. `cudaq.observe` on this
+target is untested **[U]**. Both are "not supported in M3" (decision 0010).
 
 ### 2.13 `/properties`: fail closed
 
@@ -310,12 +312,23 @@ Every free check comes before the one step that spends QPU time.
 1. **Container.** Rebuild, then `tests/run_fake_ibm.py`. It must print 6 `OK` lines (Bell,
    gate rules, GHZ-20, out-of-order `mz`, `mapping_file`, no `/properties`) and one `PROBE`
    line for `emulate=True`. Note what the probe prints.
+   **Done 2026-11-10**, on the third run: 6 `OK`. The first two runs found two bugs the
+   pip-CUDA-Q experiments could not see (§2.14). GHZ-20 was sent with 28 `cz` on 20
+   qubits; the out-of-order kernel was sent as `x $62` and measures of 62, 61, 63, and came
+   back as (q0, q2). The probe failed as expected (§2.12).
 2. **Real data, no job.** Save the real `/configuration` and `/properties` of `ibm_fez` to two
    files with [`experiments/fetch_chip_data.py`](../experiments/fetch_chip_data.py) and run
    `test_chip_data` on them (see its header). Expect 0 unreadable entries and a
    region close to 156 qubits. That these GETs use no quota is **[U]** but normal.
+   **Done 2026-11-10**: 156 qubits, 176 links, usable region 156, root 114, 0 unreadable
+   entries, every link has a cz error and every qubit a readout error. Two facts about
+   the real data: no qubit has an "operational" item (so a broken qubit shows only through
+   its error rates and its links), and the gate list also has `rzz` on every link.
 3. **Hardware, one session**, with `CUDAQ_LOG_LEVEL=info` (logs the label -> qubit map and the
    ISA circuit):
+   Script: `tests/run_ibm_hardware.py --ghz-mark M1 --order-mark M2 --yes-spend-qpu-time`
+   (it refuses to run without the last flag). At INFO, CUDA-Q logs request bodies, not
+   headers **[V]** `RestClient.cpp:71`, and the plugin never logs the key or the token.
    - GHZ-5, 1000 shots. Proposed pass mark: `00000` + `11111` in at least 80% of the shots.
      Rough estimate: the M2 Bell pair gave 94.4% with 1 `cz` and 2 readouts; GHZ-5 has 4 `cz`
      and 5 readouts, so about 85-90% **[U]**. Bruno sets the mark **before** the run.

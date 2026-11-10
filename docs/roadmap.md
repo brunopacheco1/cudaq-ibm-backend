@@ -14,7 +14,7 @@ rough, for part-time work. Each milestone is shippable.
 | M0 | Dev environment: CUDA-Q 0.16.0 source build in NVIDIA's dev container; build and run the `mock_rest` reference plugin | 1-2 days | `mock_rest` sample runs end to end | **Done** 2026-11-08 (Podman, [decision 0002](decisions/0002-build-in-linux-dev-container.md)). The ABI check moved to M4. |
 | M1 | `ibm` plugin: YAML (no mapping yet), IAM auth, job POST/poll/results, hex decoding; fake IBM server | 2-3 days | Bell pair end to end against the fake server | **Done** 2026-11-08, PR #1. Result `{ 01:1 10:2 }`. |
 | M2 | `qasm2ToIsaQasm3` gate rewrite with unit tests; first real Bell pair on `ibm_fez` qubits 0-1 | 3-5 days | Hardware counts match the Python prototype | **Done** 2026-11-09. Rules h, cx (PR #2) and z, y, rx, ry, u3 (derived by Bruno, PR #4). Bell on `ibm_fez`: `{ 00:495 11:449 01:39 10:17 }`, 94.4% correlated (prototype: 95.1%). |
-| M3 | Routing: fetch configuration and properties, prune, noise-aware numbering, device file, `qubit-mapping` in YAML, label -> IBM qubit assignment; fake server checks 2-qubit gates against the real coupling map | 3-5 days | 5-qubit GHZ on hardware; 20-qubit GHZ accepted by the fake server | **Code done, not yet run in the built plugin** 2026-11-10 (decisions [0009](decisions/0009-route-with-cudaq-then-assign-qubits.md), [0010](decisions/0010-measure-all-then-keep-measured-bits.md), [0011](decisions/0011-stop-when-properties-cannot-be-read.md)). Unit tests and pip-CUDA-Q runs of the pipeline pass. Next: [m3-spec.md](m3-spec.md) §6. |
+| M3 | Routing: fetch configuration and properties, prune, noise-aware numbering, device file, `qubit-mapping` in YAML, label -> IBM qubit assignment; fake server checks 2-qubit gates against the real coupling map | 3-5 days | 5-qubit GHZ on hardware; 20-qubit GHZ accepted by the fake server | **Passes against the fake server in the built plugin, hardware run open** 2026-11-10 (decisions [0009](decisions/0009-route-with-cudaq-then-assign-qubits.md), [0010](decisions/0010-measure-all-then-keep-measured-bits.md), [0011](decisions/0011-stop-when-properties-cannot-be-read.md)). The first two runs of the built plugin found two bugs (one register per qubit, router swaps; m3-spec §2.14). Real `ibm_fez` data parses clean. Next: the hardware session, [m3-spec.md](m3-spec.md) §6 step 3. |
 | M4 | Packaging: wheels (Linux x86_64, aarch64), ABI check against pip `cudaq`, `--install-nvqpp`, README, CI (build in dev container, run fake-server tests) | 2-3 days | `pip install` then `cudaq.set_target("ibm")` works | Not started. CI already runs the Python tests and the ISA unit test. |
 | M5 | Optional: `transport=qrmi` using the bundled `libqrmi` ([decision 0007](decisions/0007-qrmi-later-not-in-v1.md)); upstream PRs ([upstream.md](upstream.md): token refresh in `Future.cpp`, `RestClient` TLS default, native IBM basis patterns, `mapping_v2p` export, fake IBM server) | 1-2 weeks | PRs opened with DCO sign-off | Not started |
 
@@ -22,12 +22,12 @@ rough, for part-time work. Each milestone is shippable.
 
 Free checks first, QPU time last ([m3-spec.md](m3-spec.md) §6 has the details and pass marks).
 
-1. Bruno: rebuild the plugin in the container and run `tests/run_fake_ibm.py` (6 checks and
-   an `emulate=True` probe).
-2. Bruno: save the real `/configuration` and `/properties` of `ibm_fez` and run
-   `test_chip_data` on them. No job, no QPU time.
-3. Bruno: one hardware session: GHZ-5 plus one non-symmetric kernel (GHZ cannot show a wrong
-   bit order).
+1. ~~Rebuild the plugin in the container and run `tests/run_fake_ibm.py`~~ Done 2026-11-10:
+   6 of 6, after two fixes.
+2. ~~Save the real `/configuration` and `/properties` of `ibm_fez` and run `test_chip_data`
+   on them~~ Done 2026-11-10: 156 usable qubits, 0 unreadable entries.
+3. Bruno sets the pass marks; then one hardware session (`tests/run_ibm_hardware.py`): GHZ-5
+   plus one non-symmetric kernel (GHZ cannot show a wrong bit order).
 4. Open the first upstream issue ([upstream.md](upstream.md) #5); fold m3-spec.md into
    architecture.md and close M3.
 5. M4: make the fake server simulate small circuits, so CI checks results, not only gates.
@@ -45,11 +45,11 @@ Evidence is in the linked decision records.
 | Physical qubit ids compacted by CUDA-Q | **[V]** reproduced: a routed qubit 9 arrives as 5 ([m3-spec.md](m3-spec.md) §2.4); routing borrows qubits often (§2.6) | Assignment search in `Layout.h` ([decision 0009](decisions/0009-route-with-cudaq-then-assign-qubits.md)); upstream fix ([upstream.md](upstream.md) #5) |
 | Routing quality | **[V]** GHZ-20 on `ibm_fez`: 3 swaps with `placement=auto search=sabre`, 44 with CUDA-Q's default (m3-spec §2.9) | Noise-aware router later, if it matters |
 | Tests check gates and links, not results: the fake server returns 3 fixed samples | **[V]** `tests/fake_ibm_server.py` | Non-symmetric kernel in the hardware session; simulating fake server in M4 |
-| `emulate=True` and `observe` on the `ibm` target | **[V]** emulation fails at pass level, **[U]** in the built plugin; `observe` untested | Not supported in M3 ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)); probe in `run_fake_ibm.py` |
+| `emulate=True` and `observe` on the `ibm` target | **[V]** emulation fails, at pass level and in the built plugin (2026-11-10); `observe` untested | Not supported in M3 ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)); probe in `run_fake_ibm.py` |
 | CUDA-Q will change `sample` and `observe` | **[V]** `import cudaq` 0.16.0 prints a `FutureWarning` saying so; the page it links has no details yet (read 2026-11-10) | Watch the release notes; the bit-order rule in [decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md) depends on today's `sample` contract |
 | Kernel with no `mz` and an idle qubit returns a shorter bit string | **[V]** m3-spec §2.11. Allowed by CUDA-Q's specification; `oqc` and `anyon` do the same | Documented for M3; fix in M4 (next step 6), Bruno 2026-11-10 |
 | Label -> qubit search refuses large circuits | **[V]** fine up to about 100 qubits (m3-spec §2.10) | Goes away when upstream passes the layout ([upstream.md](upstream.md) #5) |
-| Real `/properties` differs from the FakeFez snapshot | **[U]** | Next step 2; the plugin stops rather than guess ([decision 0011](decisions/0011-stop-when-properties-cannot-be-read.md)) |
+| Real `/properties` differs from the FakeFez snapshot | **[V]** 2026-11-10: real `ibm_fez` data parses with 0 unreadable entries; it has no "operational" item per qubit | The plugin stops rather than guess ([decision 0011](decisions/0011-stop-when-properties-cannot-be-read.md)) |
 | Plugin ABI vs pip `cudaq` | **[U]** untested | Check in M4 |
 | Dev container image pinned by a digest NVIDIA may delete | **[V]** tags already gone | Build our own image if the digest disappears |
 | CUDA-Q pass names are an internal API | **[U]** | Pin `cudaq-version` |
