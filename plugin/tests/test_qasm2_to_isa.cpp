@@ -302,6 +302,51 @@ int main() {
   }
   CHECK(threw, "unsupported gate 'swap' is refused");
 
+  // 6. After routing, CUDA-Q declares one qreg per qubit (regtomem makes one
+  //    allocation per qubit). Labels then count over the registers in order.
+  const std::string perQubit = "OPENQASM 2.0;\n\ninclude \"qelib1.inc\";\n\n"
+                               "qreg var0[1];\nqreg var1[1];\nqreg var2[1];\n"
+                               "h var0[0];\ncx var0[0], var2[0];\n"
+                               "creg var3[1];\nmeasure var0[0] -> var3[0];\n"
+                               "creg var4[1];\nmeasure var1[0] -> var4[0];\n"
+                               "creg var5[1];\nmeasure var2[0] -> var5[0];\n";
+  const std::string oneReg = wrap(3, "h var0[0];\ncx var0[0], var0[2];\n");
+  auto split = cudaq::ibm::qasm2ToIsaQasm3(perQubit);
+  CHECK(split.numQubits == 3 && split.numClbits == 3,
+        "one qreg per qubit: 3 qubits, 3 bits");
+  CHECK(split.qasm3 == cudaq::ibm::qasm2ToIsaQasm3(oneReg).qasm3,
+        "one qreg per qubit gives the same circuit as one 3-qubit qreg");
+  CHECK(cudaq::ibm::qasm2ToIsaQasm3(perQubit, {7, 8, 9})
+                .qasm3.find("cz $7, $9;") != std::string::npos,
+        "one qreg per qubit: labels 0 and 2 go to their physical qubits");
+  auto inter = cudaq::ibm::qasm2Interactions(perQubit);
+  CHECK(inter.numQubits == 3 && inter.pairs.size() == 1 &&
+            inter.pairs[0] == std::make_pair(0, 2),
+        "one qreg per qubit: the cx is on labels 0 and 2, not 0 and 0");
+  auto interOne = cudaq::ibm::qasm2Interactions(oneReg);
+  CHECK(interOne.numQubits == 3 && interOne.pairs == inter.pairs,
+        "one 3-qubit qreg: same labels");
+  // Mixed sizes: a 2-qubit register, then a 1-qubit one.
+  auto mixed =
+      cudaq::ibm::qasm2Interactions("qreg a[2];\nqreg b[1];\ncx a[1], b[0];\n");
+  CHECK(mixed.numQubits == 3 && mixed.pairs[0] == std::make_pair(1, 2),
+        "registers of different sizes: b[0] is label 2");
+  auto refuses = [](const std::string &qasm, const std::string &text) {
+    try {
+      cudaq::ibm::qasm2Interactions(qasm);
+      cudaq::ibm::qasm2ToIsaQasm3(qasm);
+    } catch (const std::runtime_error &e) {
+      return std::string(e.what()).find(text) != std::string::npos;
+    }
+    return false;
+  };
+  CHECK(refuses("qreg a[1];\ncx a[0], b[0];\n", "unknown quantum register"),
+        "a register that was never declared is refused");
+  CHECK(refuses("qreg a[1];\nx a[1];\n", "outside its register"),
+        "an index outside its register is refused");
+  CHECK(refuses("qreg a[1];\nqreg a[1];\n", "declared twice"),
+        "a register declared twice is refused");
+
   std::cout << (failures ? "\nFAILED: " : "\nALL PASSED")
             << (failures ? std::to_string(failures) : "") << "\n";
   return failures ? 1 : 0;
