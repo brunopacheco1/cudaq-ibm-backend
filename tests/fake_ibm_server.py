@@ -17,7 +17,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, Request
+
+try:
+    from tests import isa_simulator
+except ImportError:  # started as a script: tests/ itself is the import root
+    import isa_simulator
 
 API_KEY = "test-key"
 CRN = "test-crn"
@@ -28,8 +34,24 @@ POLLS_BEFORE_DONE = int(os.environ.get("FAKE_IBM_POLLS_BEFORE_DONE", "2"))
 # for ever. With N > 0 every login gets a new token that stops working after
 # N seconds, as IBM's IAM tokens do after about an hour.
 TOKEN_TTL = float(os.environ.get("FAKE_IBM_TOKEN_TTL", "0"))
+# How a job is answered (docs/architecture.md §7):
+# - Any backend name but the one below: the circuit is simulated
+#   (tests/isa_simulator.py, no noise) and the job returns one sample per shot.
+# - FIXED_SAMPLES_BACKEND: always the three samples below, whatever the
+#   circuit and the shot count. Tests of the plugin's bit decoding use it:
+#   they need a known answer that does not depend on the circuit.
+FIXED_SAMPLES_BACKEND = "ibm_fixed_samples"
 # Two qubits, three shots. IBM is little-endian: "0x1" means qubit 0 = 1.
 SAMPLES = ["0x1", "0x1", "0x2"]
+# The simulator keeps 2**n amplitudes for the n qubits a circuit touches.
+# 24 qubits are 16 million amplitudes (256 MB); more is refused, loudly.
+MAX_SIMULATED_QUBITS = 24
+# Job k draws its samples from a generator seeded with (SEED, k): a run of
+# the same jobs in the same order gives the same samples again.
+SEED = int(os.environ.get("FAKE_IBM_SEED", "2026"))
+# FAKE_IBM_LOG_CIRCUITS=1 prints every circuit a job sends, to see what the
+# plugin made of a kernel.
+LOG_CIRCUITS = os.environ.get("FAKE_IBM_LOG_CIRCUITS", "0") == "1"
 
 # IBM accepts only "ISA" circuits: native gates on physical qubits ($k).
 NATIVE_LINE = re.compile(
@@ -111,6 +133,24 @@ def check_isa(qasm3: str) -> None:
                 raise HTTPException(400, f"cz on unwired pair: {line!r}")
             if not usable(a, b):
                 raise HTTPException(400, f"cz on broken pair: {line!r}")
+
+
+def answer(backend: str, qasm3: str, shots: int, job_number: int) -> list[str]:
+    """The samples a job returns, in IBM's format (hex, bit j is c[j])."""
+    if backend == FIXED_SAMPLES_BACKEND:
+        return list(SAMPLES)
+    try:
+        circuit = isa_simulator.parse(qasm3)
+    except ValueError as error:
+        raise HTTPException(400, f"cannot simulate: {error}") from error
+    if circuit.n_qubits > MAX_SIMULATED_QUBITS:
+        raise HTTPException(
+            400, f"the fake server simulates at most {MAX_SIMULATED_QUBITS} "
+                 f"qubits; this circuit touches {circuit.n_qubits}")
+    rng = np.random.default_rng([SEED, job_number])
+    return isa_simulator.sample(circuit, shots, rng)
+
+
 jobs: dict[str, dict[str, Any]] = {}
 # Expiring-token mode: token -> the time.monotonic() at which it stops working.
 issued: dict[str, float] = {}
@@ -210,12 +250,17 @@ async def submit_job(request: Request):
         print(f"[fake-ibm] circuit uses qubits {used}, "
               f"{pub[0].count('cz ')} cz, all on working links")
     job_id = str(uuid.uuid4())
+    qasm3, shots = pubs[0][0], int(pubs[0][2])
     # IBM reports the register size as num_bits (architecture.md §3.5).
-    bits = re.search(r"^bit\[(\d+)\] c;$", pubs[0][0], re.MULTILINE)
-    jobs[job_id] = {"polls": 0, "body": body,
+    bits = re.search(r"^bit\[(\d+)\] c;$", qasm3, re.MULTILINE)
+    samples = answer(str(body.get("backend")), qasm3, shots, len(jobs))
+    jobs[job_id] = {"polls": 0, "body": body, "samples": samples,
                     "num_bits": int(bits.group(1)) if bits else 0}
     print(f"[fake-ibm] job {job_id}: backend={body.get('backend')} "
-          f"shots={pubs[0][2]}")
+          f"shots={shots}, answers with {len(samples)} samples")
+    if LOG_CIRCUITS:
+        print("\n".join("[fake-ibm]     " + line
+                        for line in qasm3.strip().splitlines()))
     return {"id": job_id, "backend": body.get("backend")}
 
 
@@ -238,7 +283,8 @@ async def job_results(job_id: str, request: Request):
     if job_id not in jobs:
         raise HTTPException(404, "job not found")
     return {"results": [{"data": {"c": {
-        "samples": SAMPLES, "num_bits": jobs[job_id]["num_bits"]}}}]}
+        "samples": jobs[job_id]["samples"],
+        "num_bits": jobs[job_id]["num_bits"]}}}]}
 
 
 if __name__ == "__main__":

@@ -71,6 +71,8 @@ jobs:
             sleep 0.5
           done
           python tests/run_fake_ibm.py
+      - name: Compare results with CUDA-Q's simulator (simulating fake server)
+        run: python tests/run_fake_ibm_results.py
       - name: Fake server log
         if: always()
         run: cat fake-server.log

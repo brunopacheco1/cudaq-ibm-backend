@@ -1,10 +1,17 @@
 # Copyright (c) 2026 Bruno Pacheco.
 # Licensed under the Apache License 2.0.
 
-"""Run a kernel through the C++ 'ibm' plugin against the fake IBM server.
+"""Run kernels through the C++ 'ibm' plugin against the fake IBM server.
 
 Start the server first:  python3 tests/fake_ibm_server.py 62455
 Then, from /work/cuda-quantum:  python3 /src/cudaq-ibm-backend/tests/run_fake_ibm.py
+
+These cases check the protocol: login, the circuit IBM would accept, submit,
+poll, and how the answer is decoded. They use the server's backend
+"ibm_fixed_samples", which answers every job with the same three samples
+(0x1, 0x1, 0x2), so the expected counts are known whatever the circuit is.
+Whether the circuits compute the right thing is checked by
+tests/run_fake_ibm_results.py, against the simulating backend.
 """
 
 import os
@@ -17,7 +24,7 @@ import cudaq  # noqa: E402
 PORT = 62455
 cudaq.register_backend_path("build/external/ibm")
 cudaq.set_target("ibm",
-                 backend="ibm_fake",
+                 backend="ibm_fixed_samples",
                  url=f"http://localhost:{PORT}/api",
                  iam_url=f"http://localhost:{PORT}/identity/token")
 
@@ -40,7 +47,8 @@ print("OK: ISA rewrite, auth, submit, poll and bit-order decoding all work.")
 # cx before the plugin sees the circuit, so this sends the QASM2 text CUDA-Q
 # really emits for rx, ry, z and friends (angle formatting included). The fake
 # server rejects any line that is not a native gate with a numeric angle.
-# Its samples are fixed, so this checks the rewrite is accepted, not physics.
+# The samples are fixed, so this checks the rewrite is accepted, not physics
+# (tests/run_fake_ibm_results.py runs the same kernel for physics).
 kernel = cudaq.make_kernel()
 q = kernel.qalloc(2)
 kernel.rx(0.7, q[0])
@@ -103,7 +111,7 @@ with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
     f.write("Number of nodes: 5\nNumber of edges: 4\n"
             "0 --> {1}\n1 --> {0, 2}\n2 --> {1, 3}\n3 --> {2, 4}\n4 --> {3}\n")
 cudaq.set_target("ibm",
-                 backend="ibm_fake",
+                 backend="ibm_fixed_samples",
                  url=f"http://localhost:{PORT}/api",
                  iam_url=f"http://localhost:{PORT}/identity/token",
                  mapping_file=f.name)

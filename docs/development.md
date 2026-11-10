@@ -122,6 +122,14 @@ It runs six cases and prints one `OK` line for each: a Bell pair; a kernel with 
 `z`, `y`, `s`, `t` and `u3`; a 20-qubit GHZ (routing); a kernel that measures out of order; the
 `mapping_file` override; and a backend without `/properties`, which must stop. A last `PROBE`
 line shows that `emulate=True` still fails ([architecture.md](architecture.md) §8 item 7).
+These six check the protocol with fixed samples. The results themselves are checked by a
+second script, which starts its own fake server and compares 19 kernels with CUDA-Q's
+simulator ([architecture.md](architecture.md) §7):
+
+```bash
+python3 /src/cudaq-ibm-backend/tests/run_fake_ibm_results.py
+```
+
 Add `CUDAQ_LOG_LEVEL=info` to see the chip numbering, the label -> qubit map and the ISA
 circuit the plugin sends. Stop an older fake server on port 62455 first.
 
@@ -199,6 +207,7 @@ pip install cudaq==0.16.0 fastapi uvicorn python-multipart
 plugin/build_against_wheel.sh              # writes build/external/ibm
 python3 tests/fake_ibm_server.py 62455 &   # the fake IBM server
 python3 tests/run_fake_ibm.py              # six OK lines, as in §4
+python3 tests/run_fake_ibm_results.py      # 19 OK lines: results against CUDA-Q's simulator
 ```
 
 The first build downloads the headers (about 50 MB, kept in `build/cache`); later builds
