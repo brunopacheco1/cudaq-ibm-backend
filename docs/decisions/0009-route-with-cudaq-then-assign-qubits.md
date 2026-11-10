@@ -2,7 +2,7 @@
 
 Date: 2026-11-10. Status: accepted.
 Tags: **[V]** verified (source given), **[U]** unverified.
-Evidence: [m3-spec.md](../m3-spec.md) §2 (until M3 ends, then [architecture.md](../architecture.md)).
+Evidence: [architecture.md](../architecture.md) §9.
 
 ## Context
 
@@ -39,7 +39,7 @@ default options) **[V]**. So "label = device qubit" is wrong.
    cannot be read: [decision 0011](0011-stop-when-properties-cannot-be-read.md).
 4. **Router options `placement=auto search=sabre`**, not CUDA-Q's default identity start:
    GHZ-20 on `ibm_fez` needs 28 two-qubit gates instead of 151. Most of the gain is the
-   placement (`auto` alone: 34) **[V]** `experiments/m3_routing.py`, m3-spec §2.9.
+   placement (`auto` alone: 34) **[V]** `experiments/m3_routing.py`, architecture §9.6.
 
 Result bit order is a separate choice: [decision 0010](0010-measure-all-then-keep-measured-bits.md).
 

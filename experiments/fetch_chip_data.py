@@ -4,7 +4,7 @@
 """Save a backend's real /configuration and /properties to two JSON files.
 
 Two GET requests, no job, no QPU time. The files feed the parser check
-(docs/m3-spec.md, section 6, step 2):
+(docs/architecture.md, section 3.7):
 
     python experiments/fetch_chip_data.py ibm_fez
     g++ -std=c++20 -I plugin plugin/tests/test_chip_data.cpp -o /tmp/tc

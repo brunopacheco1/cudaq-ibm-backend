@@ -9,7 +9,7 @@ Tags: **[V]** verified (source given), **[U]** unverified.
 = 1) and gives the error rates for the root choice ([decision 0009](0009-route-with-cudaq-then-assign-qubits.md)).
 The first M3 code warned and continued when the request failed, and skipped entries it could
 not read. Then no broken link is removed and a `cz` can land on one. The FakeFez snapshot has
-7 broken links **[V]** m3-spec §2.5. What real IBM does with such a job is **[U]**. The free
+7 broken links **[V]** architecture §3.7. What real IBM does with such a job is **[U]**. The free
 plan gives about 10 minutes of QPU time per 28 days.
 
 ## Options

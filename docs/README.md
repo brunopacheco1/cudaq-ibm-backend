@@ -11,7 +11,6 @@ next, and how to work on it.
 | [roadmap.md](roadmap.md) | Where are we, what is next, what could go wrong? | Living |
 | [development.md](development.md) | How do I build and test it? (Linux dev container) | Living |
 | [upstream.md](upstream.md) | What should be fixed in CUDA-Q itself? | Living list |
-| [m3-spec.md](m3-spec.md) | What exactly will M3 (routing) build? | Draft, deleted when M3 is done |
 
 ## Conventions
 
