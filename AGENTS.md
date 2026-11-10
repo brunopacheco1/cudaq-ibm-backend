@@ -35,10 +35,20 @@ pip install -e ".[test]" && pytest -q
 g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_qasm2_to_isa.cpp -o /tmp/test_isa && /tmp/test_isa
 ```
 
-The C++ plugin itself only builds **inside a CUDA-Q 0.16 source build** in NVIDIA's Linux dev
-container ([docs/development.md](docs/development.md)). The pip `cudaq` has no headers or
-CMake files. A cloud agent usually cannot build or run it: say so instead of guessing, and
-give Bruno the exact commands to run in his container.
+The C++ plugin builds in two ways ([docs/development.md](docs/development.md)):
+
+```bash
+# Against the pip wheel: any Linux with g++, about a minute, also in CI (job `plugin`).
+pip install cudaq==0.16.0 fastapi uvicorn python-multipart
+plugin/build_against_wheel.sh                 # writes build/external/ibm
+python3 tests/fake_ibm_server.py 62455 &      # fake IBM, never the real one
+python3 tests/run_fake_ibm.py                 # six OK lines
+```
+
+The other way is inside a CUDA-Q 0.16 source build in NVIDIA's Linux dev container. Only
+Bruno has that; it is needed for changes to CUDA-Q itself. So an agent can build the plugin
+and run it against the fake server: do that before claiming a change works. Real IBM
+hardware runs are Bruno's.
 
 When you add a rewrite rule (after Bruno has derived it), add a case to `kRuleCases` in
 `plugin/tests/test_qasm2_to_isa.cpp`; the test proves it up to global phase.

@@ -18,14 +18,21 @@ How it works: [../docs/architecture.md](../docs/architecture.md).
 | `ResultBits.h` | IBM's hex samples -> CUDA-Q bit strings, keeping the measured qubits. Header-only. |
 | `targets/ibm.yml.in` | The target: compiler pipeline and target arguments. |
 | `CMakeLists.txt` | Builds the plugin as a CUDA-Q external project. |
+| `build_against_wheel.sh` | Builds the plugin against the pip `cudaq` wheel, without a CUDA-Q source build. CI uses it. |
 | `python/`, `pyproject.toml.in` | Python package with a `cudaq.backends` entry point (still named `cudaq_example_ibm`; renamed in M4). |
 | `tests/test_qasm2_to_isa.cpp`, `tests/test_layout.cpp`, `tests/test_chip_data.cpp`, `tests/test_result_bits.cpp` | Unit tests for the four headers. Plain `g++`, no CUDA-Q needed (run `test_layout` from the repo root; `test_chip_data` needs nlohmann/json). |
 | `tests/check_plugin.cpp`, `tests/lit.*` | Lit test inherited from `mock_rest` (`ninja check-ibm`). |
 
 ## Build
 
-Inside the dev container ([../docs/development.md](../docs/development.md)), from the CUDA-Q
-source tree:
+The quick way, on any Linux with `g++` and a Python environment that has `cudaq`
+([../docs/development.md](../docs/development.md) §6), from the repository root:
+
+```sh
+plugin/build_against_wheel.sh    # writes build/external/ibm, about a minute
+```
+
+The documented CUDA-Q way, inside the dev container, from the CUDA-Q source tree:
 
 ```sh
 cd /work/cuda-quantum

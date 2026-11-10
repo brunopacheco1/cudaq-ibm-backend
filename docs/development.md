@@ -1,12 +1,15 @@
 # Development: build and test the C++ plugin
 
-Date: 2026-11-09. Status: living document.
+Date: 2026-11-10. Status: living document.
 Reader: anyone building the plugin. Why a container and not a native Mac build:
 [decision 0002](decisions/0002-build-in-linux-dev-container.md).
 
-The C++ plugin in `plugin/` builds **inside CUDA-Q's own source tree**. The
-pip `cudaq` package has no C++ headers or CMake files, so you need a source
-build of CUDA-Q 0.16. Do it in NVIDIA's dev container.
+There are two ways to build the C++ plugin in `plugin/`:
+
+- **Inside CUDA-Q's own source tree** (§1 to §5), in NVIDIA's dev container. This is the
+  way NVIDIA documents, and the one you need to change CUDA-Q itself (upstream work).
+- **Against the pip `cudaq` wheel** (§6), on any Linux with `g++` and Python. About a
+  minute, no source build. CI uses it.
 
 The examples use Podman on an Apple Silicon Mac. Docker works the same way:
 replace `podman` with `docker`.
@@ -178,3 +181,30 @@ CUDAQ_LOG_LEVEL=info python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware.py \
 
 If `podman ps` doesn't list `cudaq-ibm`, the container has stopped. Run
 `podman start cudaq-ibm` before attaching.
+
+## 6. Without the dev container: build against the pip wheel (a minute)
+
+The pip `cudaq` package has the CUDA-Q libraries but no C++ headers. The script
+`plugin/build_against_wheel.sh` takes the headers from the CUDA-Q git commit the installed
+wheel was built from (the wheel reports it in `cudaq.__version__`) and links against the
+wheel's `libcudaq-common.so` and `libcudaq-logger.so`. It is one `g++` call. How this was
+found and what is not tested: [m4-spec.md](m4-spec.md) F1 and F2.
+
+Needs Linux (x86_64 is tested), `g++` with C++20, `git`, and Python 3.11 to 3.14. From the
+repository root:
+
+```bash
+python3 -m venv .venv-plugin && source .venv-plugin/bin/activate
+pip install cudaq==0.16.0 fastapi uvicorn python-multipart
+plugin/build_against_wheel.sh              # writes build/external/ibm
+python3 tests/fake_ibm_server.py 62455 &   # the fake IBM server
+python3 tests/run_fake_ibm.py              # six OK lines, as in §4
+```
+
+The first build downloads the headers (about 50 MB, kept in `build/cache`); later builds
+take about 20 seconds. The CI job `plugin` runs exactly these steps for every `cudaq`
+release the plugin supports.
+
+Limits: the library runs on systems whose C library is at least as new as the build
+machine's, so a file built on Ubuntu 24.04 is not a release build. aarch64 and macOS are
+not tested **[U]**.

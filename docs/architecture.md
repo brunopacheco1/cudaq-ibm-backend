@@ -276,7 +276,9 @@ Free checks first; only the last one spends QPU time.
   - `GET /api/v1/jobs/{id}`: `Running` twice, then `Completed`.
   - `GET /api/v1/jobs/{id}/results`: samples `["0x1","0x1","0x2"]`, with `num_bits` of the
     circuit.
-- `tests/run_fake_ibm.py`: needs the built plugin (dev container). Six cases, each prints
+- `tests/run_fake_ibm.py`: needs the built plugin, from the dev container or from
+  `plugin/build_against_wheel.sh` ([development.md](development.md) §6; CI job `plugin`
+  runs it on every push since M4). Six cases, each prints
   `OK`: Bell pair (`{ 10:2 01:1 }`, which proves the bit reversal), the gate rules, a
   20-qubit GHZ (routing, device file, label search), a kernel that measures out of order,
   the `mapping_file` override, and a backend without `/properties` (must stop). One `PROBE`
@@ -308,7 +310,10 @@ How to run them: [development.md](development.md) §4.
 2. **One register, Sampler only.** No Estimator, sessions or error mitigation.
 3. **`check-ibm` lit test** **[U]**: it calls `set_target('ibm')` without credentials, which
    `initialize` refuses. Not run since M1; fix in M4.
-4. **Plugin vs pip `cudaq` ABI** **[U]**: not tested yet (M4).
+4. **Plugin vs pip `cudaq` ABI**: a plugin built against the pip wheel loads into pip
+   `cudaq` 0.16.0 and 0.16.0.post1 on Linux x86_64 and passes the fake-server cases **[V]**
+   CI job `plugin`. Whether a plugin built in the dev container loads into pip `cudaq`,
+   and aarch64 and macOS: **[U]**.
 5. **Large circuits may be refused.** The label search (§9.3) gives up after 10^6 steps
    with a clear error, never a wrong placement. Random connected circuits on `ibm_fez`, 40
    cases per cell, refused cases **[V]** `experiments/m3_search_stress.cpp`:

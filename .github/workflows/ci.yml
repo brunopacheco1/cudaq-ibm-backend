@@ -46,3 +46,31 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
       - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_chip_data.cpp -o test_chip_data
       - run: ./test_chip_data
+  plugin:
+    # The C++ plugin itself: built against the pip wheel, without a CUDA-Q
+    # source build (plugin/build_against_wheel.sh), then run end to end
+    # against the fake IBM server. Never touches IBM. One run per cudaq
+    # release the plugin supports.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cudaq-version: ["0.16.0", "0.16.0.post1"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "cudaq==${{ matrix.cudaq-version }}" fastapi uvicorn python-multipart
+      - run: plugin/build_against_wheel.sh
+      - name: Run the six cases against the fake IBM server
+        run: |
+          python tests/fake_ibm_server.py 62455 > fake-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            (echo > /dev/tcp/127.0.0.1/62455) 2>/dev/null && break
+            sleep 0.5
+          done
+          python tests/run_fake_ibm.py
+      - name: Fake server log
+        if: always()
+        run: cat fake-server.log
