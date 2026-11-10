@@ -9,7 +9,7 @@ the jit-mid-level-pipeline from plugin/targets/ibm.yml.in on GHZ and random
 kernels. For each combination of router options it prints:
 
 - qreg: how many labels CUDA-Q emits. More than n means routing borrowed a
-  qubit outside 0..n-1 (so labels are not device qubits; m3-spec §2.4).
+  qubit outside 0..n-1 (so labels are not device qubits; architecture.md §9.2).
 - 2q: number of 2-qubit gates after routing (swaps are 3 cx each).
 
 Needs only the pip wheel: `pip install cudaq==0.16.0`, then, from the

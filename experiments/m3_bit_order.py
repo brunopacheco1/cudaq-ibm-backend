@@ -13,7 +13,7 @@ compiled kernel (Qiskit), reads the classical bits the way IBM returns them
 (c[i] = i-th measurement), and compares. The circuit is built from the
 compiled IR, after the passes the runtime's OpenQASM 2 translation runs, and
 not from `cudaq.translate`: that function runs extra passes, so its output
-is not what the helper receives (docs/m3-spec.md, section 2.14).
+is not what the helper receives (docs/architecture.md, section 9.7).
 
 - OLD: the pipeline before the fix, bits read as is. Wrong when the kernel
   measures qubits out of order. The router options do not matter: the same

@@ -4,7 +4,7 @@
 """M3 hardware session: two small jobs on a real IBM backend. SPENDS QPU TIME.
 
 Run it only after tests/run_fake_ibm.py passes, and only with pass marks
-that were set before the run (docs/m3-spec.md, section 6, step 3):
+that were set before the run (docs/architecture.md, section 9.8):
 
     cd /work/cuda-quantum
     python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware.py \\

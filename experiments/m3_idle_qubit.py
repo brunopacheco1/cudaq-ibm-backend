@@ -8,7 +8,7 @@ On the simulator, and on quantinuum, ionq, infleqtion and braket in
 emulation, a 4-qubit kernel gives 4 bits. On oqc and anyon in emulation it
 gives 2: the two qubits the kernel never touches are gone. Their pipelines
 run `dqe` before routing, as ours does, so the `ibm` target behaves like
-them (docs/m3-spec.md, section 2.11).
+them (docs/architecture.md, section 8, item 6).
 
 This is allowed, not a bug: the CUDA-Q specification says a qubit the kernel
 allocates but does not use "may not appear in the implicit measurement

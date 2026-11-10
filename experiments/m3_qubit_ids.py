@@ -8,7 +8,7 @@ whose centre is qubit 9 (qubits 0-8 only touch 9), then prints
 `mapping_v2p` and the OpenQASM 2 that the plugin would receive.
 
 Needs only the pip wheel: `pip install cudaq==0.16.0`, then
-`python experiments/m3_qubit_ids.py`. See docs/m3-spec.md §2.4.
+`python experiments/m3_qubit_ids.py`. See docs/architecture.md §9.2.
 """
 
 import re

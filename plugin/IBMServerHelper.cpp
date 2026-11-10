@@ -360,8 +360,9 @@ public:
     jobs.reserve(circuitCodes.size());
     for (const auto &circuitCode : circuitCodes) {
       // M3: CUDA-Q routed the circuit, but then packed the qubits it used
-      // into labels 0..m-1 (m3-spec §2.4). Find a device qubit for every
-      // label such that each 2-qubit gate sits on a link (Layout.h, step 4).
+      // into labels 0..m-1 (architecture.md §9.2). Find a device qubit for
+      // every label such that each 2-qubit gate sits on a link (Layout.h,
+      // step 4).
       if (layout.adj.empty())
         throw std::runtime_error(
             "IBM: no chip layout; the kernel was not compiled for 'ibm'.");

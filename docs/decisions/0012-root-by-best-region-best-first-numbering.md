@@ -3,7 +3,7 @@
 Date: 2026-11-10. Status: accepted. Replaces item 2 of
 [decision 0009](0009-route-with-cudaq-then-assign-qubits.md).
 Tags: **[V]** verified (source given), **[U]** unverified.
-Evidence: [m3-spec.md](../m3-spec.md) §6 step 3.
+Evidence: [architecture.md](../architecture.md) §9.8.
 
 ## Context
 
@@ -20,7 +20,7 @@ One data point.
 ## Options
 
 Forecast for the first 5, 10 and 20 numbers, same calibration **[V]** (Python on the saved
-`/properties` reply, m3-spec §6 step 3):
+`/properties` reply of 2026-11-10):
 
 | | Rule | Root | 5 | 10 | 20 |
 |---|---|---|---|---|---|
@@ -57,7 +57,7 @@ an independent Python script): root **121**, 96.5% / 91.9% / 79.7%. Nine roots g
   table. **Measured** on 2026-11-10 **[V]**: GHZ-5 went from 81.2% (old rule, qubits 112,
   113, 114, 115, 99) to **90.5%** (new rule, qubits 121 to 125), 1000 shots each, two hours
   apart on the same calibration. The forecast for the qubits used was 95.0%, so the model
-  overstates the result by a few points (m3-spec §6 step 3). The job took qubit 125 (number
+  overstates the result by a few points (architecture §9.8). The job took qubit 125 (number
   14) as its fifth qubit: the label search takes the first placement that fits, not the
   cheapest.
 - The forecast ignores 1-qubit gate errors, idle time (T1, T2) and crosstalk, and the
