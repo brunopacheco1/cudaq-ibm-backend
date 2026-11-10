@@ -20,8 +20,9 @@ rough, for part-time work. Each milestone is shippable.
 
 ## 2. Next steps
 
-1. Upstream: Bruno opens the first issue ([upstream.md](upstream.md) #5; the draft is ready).
-   Then the `getHeaders()` pull request (#1).
+1. Upstream: the first issue is open since 2026-11-10,
+   [NVIDIA/cuda-quantum#5882](https://github.com/NVIDIA/cuda-quantum/issues/5882) ([upstream.md](upstream.md) #5). Follow the answer.
+   Next: the `getHeaders()` pull request (#1).
 2. M4: make the fake server simulate small circuits, so CI checks results, not only gates.
 3. M4: measure idle qubits in kernels without `mz` (`add-measurements` early in the
    pipeline, with a fake-server test; [architecture.md](architecture.md) §8 item 6),
