@@ -21,6 +21,7 @@ dependencies = [
 local = ["qiskit-ibm-runtime>=0.40", "qiskit-aer>=0.17"]
 # fastapi + httpx: tests/test_fake_server.py drives the fake IBM server.
 # python-multipart: FastAPI needs it to read the form body of the IAM login.
+# numpy: tests/isa_simulator.py, the simulator behind the fake IBM server.
 test = [
     "cudaq-ibm-backend[local]",
     "pytest>=8",
@@ -28,6 +29,7 @@ test = [
     "fastapi>=0.110",
     "httpx>=0.27",
     "python-multipart>=0.0.9",
+    "numpy>=1.26",
 ]
 
 [tool.setuptools.packages.find]
