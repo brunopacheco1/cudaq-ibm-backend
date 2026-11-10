@@ -10,13 +10,13 @@
 // CUDA-Q routes the kernel (pass `qubit-mapping`) on a device graph that we
 // write as a file. This header builds that graph from IBM's backend data and
 // turns CUDA-Q's qubit labels back into IBM qubit ids. Background and
-// evidence: docs/m3-spec.md (until M3 ends), decision 0009.
+// evidence: docs/m3-spec.md (until M3 ends), decisions 0009 and 0012.
 //
 // The steps, in order:
 //   1. usableRegion()      drop broken qubits and links, keep the largest
 //                          connected part of the chip.
 //   2. chooseRoot()        pick the qubit the numbering starts from.
-//   3. breadthFirstLayout() number the region 0..k-1 so every prefix is
+//   3. bestFirstLayout()   number the region 0..k-1 so every prefix is
 //                          connected; this is the device file CUDA-Q routes on.
 //   4. assignQubits()      after CUDA-Q, map each label of the circuit to a
 //                          device qubit so every 2-qubit gate lands on a link.
@@ -190,49 +190,39 @@ inline Region usableRegion(const Chip &chip) {
 }
 
 // ============================================================================
-// 2. The root (decision 0009, D2 option C: noise-aware).
+// 2 and 3. The root and the numbering (decision 0012).
 //
-// Rule chosen by Bruno on 2026-11-09: the score of a qubit is the mean cz
-// error of its working links plus its readout error; lowest score wins, ties
-// go to the lowest id. The kernel size is not known when the device file is
-// written (getPipelineSubstitutions gets no kernel), so the score cannot
-// depend on it.
-// ============================================================================
-
-inline int chooseRoot(const Region &region, const Chip &chip) {
-  int best = -1;
-  double bestScore = 0.0;
-  for (int q : region.qubits) {
-    const auto &nbrs = region.adj[q];
-    double sum = 0.0;
-    for (int v : nbrs)
-      sum += region.linkError.at(std::minmax(q, v));
-    const double score =
-        sum / static_cast<double>(nbrs.size()) + chip.qubits[q].readoutError;
-    if (best == -1 || score < bestScore) {
-      best = q;
-      bestScore = score;
-    }
-  }
-  return best;
-}
-
-// ============================================================================
-// 3. Breadth-first numbering.
+// Label 0 is the root. The next label always goes to the qubit, linked to an
+// already numbered one, with the lowest cost = its readout error + the cz
+// error of its best link into the numbered set ("best-first"). Ties go to
+// the lowest IBM id.
 //
-// Label 0 is the root; then its neighbours, then theirs, each group in
-// ascending IBM id. Claim: for every k, labels 0..k-1 form a connected
-// graph. Proof: every label j > 0 was found from a neighbour that already
-// had a smaller label (its "parent"), so following parents from any label
-// below k reaches label 0 without leaving 0..k-1.
+// Claim: for every k, labels 0..k-1 form a connected graph. Proof: every
+// label j > 0 was reached over a link from a qubit that already had a
+// smaller label (its "parent"), so following parents from any label below k
+// reaches label 0 without leaving 0..k-1.
 //
-// Why it helps: low labels are a connected patch around the root, the best
-// qubit we know. The assignment search (step 4) tries each circuit label on
-// the device qubit with the same number first, then on low numbers, so a
-// circuit with m labels lands on or near labels 0..m-1, close to the root. (The
-// router itself does not stay there: with placement=auto its greedy start
-// begins at the most central qubit of the device file. That does not matter,
-// because only the packed labels reach us; m3-spec §2.4.)
+// Why it helps: low labels are a connected patch of good qubits. The
+// assignment search (step 4) tries each circuit label on the device qubit
+// with the same number first, then on low numbers, so a circuit with m
+// labels lands on or near labels 0..m-1. (The router itself does not stay
+// there: with placement=auto its greedy start begins at the most central
+// qubit of the device file. That does not matter, because only the packed
+// labels reach us; m3-spec §2.4.)
+//
+// The root: grow such a patch of ROOT_REGION_SIZE qubits from every qubit
+// and keep the root whose patch has the best forecast.
+//
+// Forecast of a patch: the product of (1 - readout error) over its qubits
+// and (1 - cz error) over the link each qubit was reached by. It is the
+// chance that a circuit touching every qubit once and every such link once
+// runs without an error. Crude, but the first hardware run agreed with it
+// (ibm_fez, 2026-11-10: 82.9% forecast, 81.2% measured).
+//
+// History: until 2026-11-10 the root was the qubit with the lowest (mean cz
+// error of its links + readout error) and the numbering was breadth-first.
+// On the first hardware run that picked qubit 114, whose neighbour 113 had a
+// readout error of 11.7% and got label 1, so a 5-qubit job ran through it.
 // ============================================================================
 
 struct Layout {
@@ -240,21 +230,87 @@ struct Layout {
   std::vector<std::vector<int>> adj; // by device label, ascending
 };
 
-inline Layout breadthFirstLayout(const Region &region, int root) {
+/// How many qubits the root's patch has when roots are compared. The kernel
+/// size is not known when the device file is written
+/// (getPipelineSubstitutions gets no kernel), so this is fixed.
+constexpr std::size_t ROOT_REGION_SIZE = 10;
+
+struct Patch {
+  std::vector<int> ibmId; // in numbering order; ibmId[0] is the root
+  double forecast = 0.0;  // see above; 0 when a readout error is unknown
+};
+
+/// The first `limit` qubits in best-first order from `root`.
+inline Patch growPatch(const Region &region, const Chip &chip, int root,
+                       std::size_t limit) {
   const int n = static_cast<int>(region.adj.size());
   if (root < 0 || root >= n || region.adj[root].empty())
     throw std::runtime_error("ibm: root qubit " + std::to_string(root) +
                              " is not in the usable region");
-  std::vector<int> label(n, -1);
-  Layout l;
-  l.ibmId.push_back(root);
-  label[root] = 0;
-  for (std::size_t i = 0; i < l.ibmId.size(); ++i)
-    for (int v : region.adj[l.ibmId[i]]) // ascending IBM id
-      if (label[v] == -1) {
-        label[v] = static_cast<int>(l.ibmId.size());
-        l.ibmId.push_back(v);
+  constexpr double NOT_REACHED = 2.0;           // above any error rate
+  std::vector<double> bestLink(n, NOT_REACHED); // best cz error into the patch
+  std::vector<char> inPatch(n, 0);
+  Patch patch;
+  patch.forecast = 1.0;
+  int next = root;
+  double nextLink = 0.0;
+  while (next != -1 && patch.ibmId.size() < limit) {
+    inPatch[next] = 1;
+    patch.ibmId.push_back(next);
+    patch.forecast *= (1.0 - chip.qubits[next].readoutError) * (1.0 - nextLink);
+    for (int v : region.adj[next])
+      if (!inPatch[v])
+        bestLink[v] =
+            std::min(bestLink[v], region.linkError.at(std::minmax(next, v)));
+    next = -1;
+    double nextCost = 0.0;
+    for (int v : region.qubits) { // ascending IBM id: ties go to the lowest
+      if (inPatch[v] || bestLink[v] == NOT_REACHED)
+        continue;
+      const double cost = chip.qubits[v].readoutError + bestLink[v];
+      if (next == -1 || cost < nextCost) {
+        next = v;
+        nextCost = cost;
+        nextLink = bestLink[v];
       }
+    }
+  }
+  return patch;
+}
+
+/// The root whose patch of `size` qubits has the best forecast. Two roots
+/// inside the same patch often give the same forecast; then the one with the
+/// lower readout error wins (it becomes label 0), then the lowest IBM id.
+/// Forecasts closer than 1e-12 count as equal, so that the choice does not
+/// depend on the order of the multiplications.
+inline int chooseRoot(const Region &region, const Chip &chip,
+                      std::size_t size = ROOT_REGION_SIZE) {
+  constexpr double SAME = 1e-12;
+  int best = -1;
+  double bestForecast = 0.0;
+  for (int q : region.qubits) {
+    const double forecast = growPatch(region, chip, q, size).forecast;
+    const bool better = best == -1 || forecast > bestForecast + SAME;
+    const bool tieWon =
+        !better && forecast > bestForecast - SAME &&
+        chip.qubits[q].readoutError < chip.qubits[best].readoutError;
+    if (better || tieWon) {
+      best = q;
+      bestForecast = forecast;
+    }
+  }
+  return best;
+}
+
+/// Number the whole region best-first from `root`.
+inline Layout bestFirstLayout(const Region &region, const Chip &chip,
+                              int root) {
+  const Patch all = growPatch(region, chip, root, region.qubits.size());
+  std::vector<int> label(region.adj.size(), -1);
+  for (std::size_t k = 0; k < all.ibmId.size(); ++k)
+    label[all.ibmId[k]] = static_cast<int>(k);
+  Layout l;
+  l.ibmId = all.ibmId;
   l.adj.assign(l.ibmId.size(), {});
   for (std::size_t k = 0; k < l.ibmId.size(); ++k) {
     for (int v : region.adj[l.ibmId[k]])

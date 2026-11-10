@@ -100,6 +100,16 @@ static int tryRealData(const char *configPath, const char *propsPath) {
             << ", links without cz error " << report.unknown.links
             << ", qubits without readout error " << report.unknown.qubits
             << ", qubits with sx or x error 1 " << report.staleQubits << "\n";
+  // The numbering, to compare with an independent calculation.
+  const int root = chooseRoot(region, chip);
+  for (std::size_t size : {5, 10, 20}) {
+    const Patch patch = growPatch(region, chip, root, size);
+    std::cout << "first " << patch.ibmId.size() << " qubits, forecast "
+              << 100.0 * patch.forecast << "%:";
+    for (int q : patch.ibmId)
+      std::cout << " " << q;
+    std::cout << "\n";
+  }
   return 0;
 }
 
