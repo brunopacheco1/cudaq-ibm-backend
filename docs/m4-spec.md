@@ -1,6 +1,6 @@
 # M4 spec: results checked in CI, idle qubits, emulation, observe, packaging
 
-Date: 2026-11-10. Status: **draft, waiting for Bruno's decisions (§3). No code before that.**
+Date: 2026-11-10. Status: **decisions taken by Bruno on 2026-11-10 (§3); in progress, step 1 of §4.**
 Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified.
 "Today's runs" means: cloud container, Ubuntu 24.04 x86_64, g++ 13.3, Python 3.13, pip
@@ -40,9 +40,11 @@ These facts changed the plan, so please read them before §3.
 Limits of these facts: one machine, one architecture, few kernels. F5 and F6 need a
 random-kernel test before anyone relies on them.
 
-## 3. Decisions for you
+## 3. Decisions
 
-Each one has my recommendation and what it costs. Answer "all as recommended" or pick.
+Each one has the options, the recommendation and what it costs. **Bruno decided all seven on
+2026-11-10**; his choice is the last line of each. They become decision records when M4
+closes.
 
 ### D1. How is the plugin built for CI and for releases?
 
@@ -58,6 +60,8 @@ Recommended: **C**. Risk of A: it is not the documented way. If headers and whee
 the plugin could misbehave at run time instead of failing at compile time. Guard: CI builds
 and runs the end-to-end tests against every `cudaq` version we claim to support.
 
+**Decision: C.**
+
 ### D2. Which platforms does the first release cover?
 
 - **A.** Linux x86_64 only (verified, F1).
@@ -67,6 +71,8 @@ and runs the end-to-end tests against every `cudaq` version we claim to support.
 
 Recommended: **B, and two hours to try C.** macOS is **[U]**: other compiler, other C++
 library. If it does not work in two hours, it becomes an open item, not a blocker.
+
+**Decision: B. macOS is an open item for later, without the two-hour try now.**
 
 ### D3. Where do the wheels go, and under which name?
 
@@ -82,6 +88,21 @@ weigh: "IBM" in the name of an unofficial package (the README would say "not aff
 with IBM or NVIDIA"), and the Python prototype in `src/` already uses the names
 `cudaq-ibm-backend` and `cudaq_ibm`. My proposal: plugin = `cudaq-ibm`, prototype stays
 unpublished. Your call.
+
+**Decision: A now, PyPI later; working name `cudaq-ibm`.** Bruno asked whether to validate
+the name with IBM. What IBM's trademark page says **[V]**
+https://www.ibm.com/legal/copyright-trademark (read 2026-11-10): text-only references that
+are truthful and do not mislead are fair use; "Do not incorporate any IBM product names
+into your company's product names"; "You must be clear and accurate as to the nature of the
+relationship between IBM and your company"; the first mention needs an attribution line;
+"Always consult a local attorney". It names no contact for a question like ours (the phone
+line it gives is for logos). NVIDIA's own packaging guide names its example plugin
+`my-backend-cudaq` **[V]** `packaging.rst:137`. Other vendors publish packages named after
+someone else's product (`pennylane-qiskit` by Xanadu, `pytket-qiskit` by Quantinuum,
+`qiskit-ionq` by IonQ **[V]** PyPI); that shows a habit, not a permission. Plan: add the
+attribution and a "not affiliated" sentence to the README in step 4; settle the name
+(ask IBM, or pick a name without "IBM") **before PyPI**, where a name is hard to change.
+On a GitHub Release a rename costs little.
 
 ### D4. What simulates the circuits in the fake server, and who writes it?
 
@@ -105,6 +126,8 @@ signature, hints and the tests it must pass, and all the server plumbing around 
 prefer, I write it. (My prototype is `sim_server.py` in the experiments folder: do not open
 it if you want to do this yourself.)
 
+**Decision: A, and Bruno writes `simulate()`.**
+
 ### D5. Idle qubits
 
 - **A. Remove `dqe` from the pipeline** (F4). Every allocated qubit keeps its place and is
@@ -113,6 +136,8 @@ it if you want to do this yourself.)
 - **C. Leave it.** CUDA-Q's specification allows the shorter bit string.
 
 Recommended: **A.** It also removes the cause of the wrong expectation values in F7.
+
+**Decision: A.**
 
 ### D6. `emulate=True`
 
@@ -131,6 +156,8 @@ not this plugin. B would also route differently from the hardware path, and it r
 it will change (F8). A silent wrong bit order is the worst failure this plugin can have.
 Revisit after that CUDA-Q change.
 
+**Decision: A.**
+
 ### D7. `cudaq.observe` (expectation values)
 
 - **A. Not in this release.** Document it, give a clear error where our code is reached,
@@ -148,7 +175,9 @@ is "shots with even parity minus shots with odd parity, divided by shots". Limit
 large kernels `observe` may still crash instead of printing our error **[V]** F6; whether
 the helper can detect `observe` earlier is **[U]**, one hour to try.
 
-## 4. What gets built (if you take the recommendations)
+**Decision: A, then C.**
+
+## 4. What gets built
 
 Smallest useful step first; each step is one PR.
 
@@ -157,7 +186,7 @@ Smallest useful step first; each step is one PR.
 | 1 | CI job: build the plugin against the wheel (F1), start the fake server, run the six existing cases. Matrix: `cudaq` 0.16.0 and 0.16.0.post1 | Claude |
 | 2 | Simulating fake server: `simulate()` (D4), server plumbing, a backend name that keeps the fixed samples for the bit-order case. Tests compare with CUDA-Q's simulator: random `x`/`cx` kernels (one right answer each), GHZ, the gate-rule kernel (so `rx`, `ry`, `u3`, `s`, `t` are checked for physics end to end, not only accepted), partial and missing `mz` | `simulate()`: Bruno. Rest: Claude |
 | 3 | Pipeline: remove `dqe` (D5), idle-qubit test, clear errors for `emulate=True` and `observe` (D6, D7), the `sample`-based expectation example | Pipeline and errors: Claude. Example: Bruno |
-| 4 | Packaging: rename `cudaq_example_ibm`, wheel build per platform in a `manylinux_2_28` image (D2), release workflow (D3), `--install-nvqpp` check, README install section. Remove the inherited lit test `check-ibm`: it needs a source build, and steps 1 and 4 cover what it checked | Claude |
+| 4 | Packaging: rename `cudaq_example_ibm`, wheels for Linux x86_64 and aarch64 built in a `manylinux_2_28` image (D2), release workflow to a GitHub Release (D3), trademark attribution in the README, `--install-nvqpp` check, README install section. Remove the inherited lit test `check-ibm`: it needs a source build, and steps 1 and 4 cover what it checked | Claude |
 | 5 | You: one kernel on `ibm_fez` from the installed wheel. Then close M4: facts to `architecture.md`, choices to `decisions/`, delete this spec | Bruno, then Claude |
 
 Effort: about 4 to 6 part-time days. The roadmap said 2 to 3, but that was packaging alone.
@@ -179,7 +208,9 @@ version and keeps the mode.
 |---|---|
 | Wheel-based build breaks on a later `cudaq` (headers and binary drift apart) | CI matrix per supported version; the dev container build stays as the fallback |
 | `manylinux_2_28` image has another GCC than the wheel (12.2.1) **[U]** | Try in step 4; fallback: NVIDIA's `manylinux` devdeps image |
-| aarch64 and macOS builds **[U]** | D2: aarch64 in step 4, macOS time-boxed |
+| aarch64 build **[U]** | Step 4 |
+| No macOS wheel: on a Mac the plugin runs only in a Linux container | Open item (D2), after M4 |
+| The package name contains "IBM" | D3: settle before PyPI |
 | The numpy simulator and the plugin share a wrong idea about bit order | The reference is CUDA-Q's simulator on the original kernel, and the two hardware runs of M3 already confirmed the order on a real chip |
 | Without `dqe`, something else in the pipeline changes **[U]** | The random-kernel tests of step 2 exist before step 3 changes the pipeline |
 | CUDA-Q changes `sample`/`observe` (F8, PR 5875) | D6 and D7 avoid building on that code now. Our own bit-order rule ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)) will also need a second look when that release comes; the result tests of step 2 will show at once if it breaks. Read the PR before any design of `emulate` or `observe` |
