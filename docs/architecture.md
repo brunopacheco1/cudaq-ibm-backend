@@ -211,6 +211,8 @@ Content-Type:  application/json
 | `plugin/tests/check_plugin.cpp` | Lit test inherited from CUDA-Q's `mock_rest` example (`ninja check-ibm`) | **[U]** may fail, §8 |
 | `plugin/CMakeLists.txt`, `plugin/python/*`, `plugin/pyproject.toml.in` | Build as a CUDA-Q external project; Python package with a `cudaq.backends` entry point | From `mock_rest`; still named `cudaq_example_ibm` (M4) |
 | `tests/fake_ibm_server.py`, `tests/test_fake_server.py`, `tests/run_fake_ibm.py` | Fake IBM with the `ibm_fez` wiring, its own tests (CI), and end-to-end runs through the built plugin (§7) | Done (M3) |
+| `tests/isa_simulator.py`, `tests/test_isa_simulator.py` | Statevector simulator for native-gate circuits (`rz`, `sx`, `x`, `cz`, measurements at the end), no noise; the fake server answers jobs with it. The quantum functions are Bruno's. Its tests compare it with Qiskit (CI) | Done (M4) |
+| `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 19 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
 | `src/cudaq_ibm/` | Phase 1 Python prototype (uses Qiskit for the ISA step) | Done; reference for the C++ code |
@@ -258,7 +260,8 @@ qubit that §9.3 found for it; without that map, label i is sent as `$i`.
 Free checks first; only the last one spends QPU time.
 
 - `pytest` (CI): the Python prototype with `responses` and `FakeFez`, the fake server
-  (`tests/test_fake_server.py`) and the target pipeline (`tests/test_target_yml.py`, §9.7).
+  (`tests/test_fake_server.py`), its simulator (`tests/test_isa_simulator.py`, compared with
+  Qiskit on 40 random circuits) and the target pipeline (`tests/test_target_yml.py`, §9.7).
   Never touches IBM.
 - Four C++ unit tests (CI, plain `g++`): `test_qasm2_to_isa` (rewrite rules, register
   table), `test_layout` (region, root, numbering, device file, label search),
@@ -274,16 +277,50 @@ Free checks first; only the last one spends QPU time.
     `sampler`, that every gate is native, that no gate touches an unusable qubit, and that
     every `cz` is on a working link.
   - `GET /api/v1/jobs/{id}`: `Running` twice, then `Completed`.
-  - `GET /api/v1/jobs/{id}/results`: samples `["0x1","0x1","0x2"]`, with `num_bits` of the
-    circuit.
+  - `GET /api/v1/jobs/{id}/results`: one sample per shot, with `num_bits` of the circuit.
+    Since M4 the server simulates the circuit it was sent (`tests/isa_simulator.py`: only
+    the qubits the circuit touches, at most 24, no noise) and draws the samples with a
+    generator seeded per job (`FAKE_IBM_SEED`, default 2026), so a rerun gives the same
+    samples. The backend name `ibm_fixed_samples` keeps the old answer, always
+    `["0x1","0x1","0x2"]`: the tests of bit decoding need an answer that does not depend
+    on the circuit. `FAKE_IBM_LOG_CIRCUITS=1` prints every circuit a job sends.
 - `tests/run_fake_ibm.py`: needs the built plugin, from the dev container or from
   `plugin/build_against_wheel.sh` ([development.md](development.md) §6; CI job `plugin`
-  runs it on every push since M4). Six cases, each prints
+  runs it on every push since M4). Six cases against `ibm_fixed_samples`, each prints
   `OK`: Bell pair (`{ 10:2 01:1 }`, which proves the bit reversal), the gate rules, a
   20-qubit GHZ (routing, device file, label search), a kernel that measures out of order,
   the `mapping_file` override, and a backend without `/properties` (must stop). One `PROBE`
   line shows that `emulate=True` still fails (§8). Passed 2026-11-10 **[V]**: GHZ-20 was sent
   with 28 `cz` and no swap.
+- `tests/run_fake_ibm_results.py`: needs the built plugin; CI job `plugin` runs it. It
+  starts its own fake server (port 62457, jobs done at the first poll) and runs 19 kernels
+  twice: on CUDA-Q's simulator (`qpp-cpu`) and through the plugin against the simulating
+  server. The results must agree:
+  - 12 random kernels of `x` and `cx` on 2 to 7 qubits, measured in full, in part and out
+    of order, or with no `mz`. Each has one right answer, which the script also computes
+    with plain bit logic.
+  - GHZ on 3, 8 and 16 qubits: only all-zeros and all-ones, about half each.
+  - Two kernels with rotations: the M2 gate-rule kernel, and a 3-qubit kernel with every
+    one- and two-qubit gate of the kernel builder, also with `mz` on two qubits and with no
+    `mz`. The outcome distributions (20 000 shots) must be within 0.03 of the reference
+    (total variation distance; shot noise is about 0.01).
+
+  Passed 2026-11-10 **[V]** with `cudaq` 0.16.0 and 0.16.0.post1; the script takes about 3
+  seconds. Planted faults, same day **[V]**: a wrong `ry` rule, a wrong `z` rule, a `cx`
+  rule with the Hadamards on the control, a simulator `rz` with half the angle and a
+  reversed classical register were each reported. Three limits:
+  - A kernel with a qubit no gate touches still returns a bit string that is too short
+    (§8 item 6). The script runs one and prints it as a known defect; it does not fail.
+  - The 3-qubit kernel was picked by a search (`experiments/m4_test_kernel_search.py`), so
+    that a mistake in any one kind of gate moves the distribution by at least 0.117. A
+    first kernel written by hand let the wrong `ry` rule pass: its two `ry` gates
+    cancelled the fault.
+  - No test of this kind can see the mirror image of a circuit. Changing the sign of every
+    `rz` angle at once gives the same probabilities for every outcome (it flips the Y axis
+    of every qubit, and a measurement along Z from the state 00...0 cannot tell). Run
+    2026-11-10 **[V]**: with that change in the simulator all 19 kernels still passed. The
+    unit test of the rules (`test_qasm2_to_isa`, matrices up to a global phase) does see
+    it.
 - `tests/run_token_expiry.py`: needs the built plugin. Starts the fake server with
   `FAKE_IBM_TOKEN_TTL=12` (every login gets a new token that stops working after 12 s) and
   a job that needs 5 polls, then reports whether the poll survived (§8 item 1). The server
