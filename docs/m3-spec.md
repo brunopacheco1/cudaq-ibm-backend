@@ -276,7 +276,8 @@ Every free check comes before the one step that spends QPU time.
    gate rules, GHZ-20, out-of-order `mz`, `mapping_file`, no `/properties`) and one `PROBE`
    line for `emulate=True`. Note what the probe prints.
 2. **Real data, no job.** Save the real `/configuration` and `/properties` of `ibm_fez` to two
-   files and run `test_chip_data` on them (see its header). Expect 0 unreadable entries and a
+   files with [`experiments/fetch_chip_data.py`](../experiments/fetch_chip_data.py) and run
+   `test_chip_data` on them (see its header). Expect 0 unreadable entries and a
    region close to 156 qubits. That these GETs use no quota is **[U]** but normal.
 3. **Hardware, one session**, with `CUDAQ_LOG_LEVEL=info` (logs the label -> qubit map and the
    ISA circuit):
