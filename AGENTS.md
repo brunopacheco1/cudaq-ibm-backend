@@ -85,5 +85,3 @@ When you add a rewrite rule (after Bruno has derived it), add a case to `kRuleCa
 - The dev container image also ships an older `cudaq`. `cudaq.__file__` must point into
   `/work/cuda-quantum/build/python`.
 - Never `pip install` the Python prototype inside the dev container.
-- The history of `main` was rewritten on 2026-11-10 (authors, then signatures). Commit
-  hashes from before that day, in old pull requests or notes, are not on `main` any more.
