@@ -2,7 +2,7 @@
 
 Date: 2026-11-10. Status: accepted.
 Tags: **[V]** verified (source given), **[U]** unverified.
-Evidence: [m3-spec.md](../m3-spec.md) §2.8, §2.11, §2.12.
+Evidence: [architecture.md](../architecture.md) §9.5 and §8 items 6 and 7.
 
 ## Context
 
@@ -43,7 +43,7 @@ them also routes, so this combination is ours to maintain.
 - A kernel with no `mz` and a qubit it never touches loses that qubit's bit: CUDA-Q removes
   the idle qubit before it adds the measurements **[V]** `Compiler.cpp:421, 467-473`.
   CUDA-Q's specification allows it, and `oqc` and `anyon` do the same
-  ([m3-spec.md](../m3-spec.md) §2.11). A fix exists (`add-measurements` early in the
+  ([architecture.md](../architecture.md) §8 item 6). A fix exists (`add-measurements` early in the
   pipeline); planned for M4 (Bruno, 2026-11-10; [roadmap.md](../roadmap.md)).
 
 ## Revisit when

@@ -115,15 +115,40 @@ cd /work/cuda-quantum
 python3 /src/cudaq-ibm-backend/tests/run_fake_ibm.py
 ```
 
-It runs two kernels: a Bell pair, then one with `rx`, `ry`, `z`, `y`, `s`, `t` and `u3`.
-The expected output ends with `OK: rx, ry, z, y, s, t, u3 rewrite into ISA gates the server
-accepts.` Add `CUDAQ_LOG_LEVEL=info` to see the ISA
-circuit the plugin sends.
+It runs six cases and prints one `OK` line for each: a Bell pair; a kernel with `rx`, `ry`,
+`z`, `y`, `s`, `t` and `u3`; a 20-qubit GHZ (routing); a kernel that measures out of order; the
+`mapping_file` override; and a backend without `/properties`, which must stop. A last `PROBE`
+line shows that `emulate=True` still fails ([architecture.md](architecture.md) §8 item 7).
+Add `CUDAQ_LOG_LEVEL=info` to see the chip numbering, the label -> qubit map and the ISA
+circuit the plugin sends. Stop an older fake server on port 62455 first.
 
-The gate-rewrite unit test needs no CUDA-Q and also runs in CI:
+The four unit tests need no CUDA-Q and also run in CI. From the repository root:
 
 ```bash
-g++ -std=c++20 -I plugin plugin/tests/test_qasm2_to_isa.cpp -o /tmp/test_isa && /tmp/test_isa
+JSON=/work/cuda-quantum/tpls/json/single_include   # in the dev container
+for t in qasm2_to_isa layout result_bits chip_data; do
+  g++ -std=c++20 -I plugin -I $JSON plugin/tests/test_$t.cpp -o /tmp/test_$t && /tmp/test_$t | tail -1
+done
+```
+
+Outside the container, `apt install nlohmann-json3-dev` replaces the `-I $JSON` part.
+
+To try the parser and the numbering on real IBM data without sending a job (needs the
+credentials of [decision 0003](decisions/0003-credentials-from-environment.md); the files go
+to the git-ignored `chipdata/`):
+
+```bash
+python3 experiments/fetch_chip_data.py
+/tmp/test_chip_data chipdata/ibm_fez-configuration.json chipdata/ibm_fez-properties.json
+```
+
+Real hardware, which spends QPU time (about 3 seconds for both kernels). Set the two pass
+marks before the run; the script refuses to start without the last flag
+([architecture.md](architecture.md) §9.8):
+
+```bash
+CUDAQ_LOG_LEVEL=info python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware.py \
+  --ghz-mark 0.88 --order-mark 0.95 --yes-spend-qpu-time
 ```
 
 ## 5. Optional: VS Code inside the container

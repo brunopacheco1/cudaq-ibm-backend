@@ -67,7 +67,7 @@ circuit sent and the raw results.
 Kernels made of `x`, `y`, `z`, `h`, `rx`, `ry`, `rz`, `u3` and `cx` (and gates CUDA-Q turns
 into those, such as `s`, `t` and `cz`) are accepted; anything else throws. Since M3 the kernel
 is routed onto the chip, around qubits and links IBM reports as broken. Not supported yet:
-`emulate=True` and `observe`. Known limits: [../docs/m3-spec.md](../docs/m3-spec.md) §2.10-§2.13.
+`emulate=True` and `observe`. Known limits: [../docs/architecture.md](../docs/architecture.md) §8.
 
 ## Test
 

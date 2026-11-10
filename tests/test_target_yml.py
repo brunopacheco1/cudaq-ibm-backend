@@ -6,7 +6,7 @@ the C++ helper can read.
 
 These tests run the pipeline with pip CUDA-Q and look at the compiled kernel
 (the IR), not at `cudaq.translate`: that function runs extra passes, so its
-OpenQASM is not what the plugin receives (docs/m3-spec.md, section 2.14).
+OpenQASM is not what the plugin receives (docs/architecture.md, section 9.7).
 The first run of the built plugin failed twice on such differences: one qreg
 per qubit, and `swap` gates left by the router.
 """
