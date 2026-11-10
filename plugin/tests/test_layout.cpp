@@ -148,6 +148,38 @@ static void testRegion() {
         "error");
 }
 
+// ---- 1b. Missing data (fail closed) ----------------------------------------
+static void testUnknowns() {
+  // Path 0-1-2-3, both directions. Link 0-1 known one way, 1-2 known both
+  // ways, 2-3 unknown. Qubit 3 has no readout error.
+  Chip chip;
+  chip.qubits.assign(4, ChipQubit{0.02, true});
+  chip.qubits[3].readoutError = UNKNOWN_ERROR;
+  chip.links = {{0, 1, 0.03, true},          {1, 0, UNKNOWN_ERROR, true},
+                {1, 2, 0.01, true},          {2, 1, 0.02, true},
+                {2, 3, UNKNOWN_ERROR, true}, {3, 2, UNKNOWN_ERROR, true}};
+  UnknownCount c = closeUnknowns(chip);
+  CHECK(c.qubits == 1 && c.links == 1 && c.allLinks == 3,
+        "counts 1 qubit and 1 of 3 links without data");
+  CHECK(chip.links[1].czError == 0.03 && chip.links[1].operational,
+        "a link known one way uses that error both ways");
+  CHECK(!chip.links[4].operational && !chip.links[5].operational,
+        "a link with no cz error at all is not used");
+  CHECK(chip.qubits[3].readoutError == 1.0 && chip.qubits[3].operational,
+        "a qubit without readout error gets the worst score but stays");
+  Region r = usableRegion(chip);
+  CHECK((r.qubits == std::vector<int>{0, 1, 2}),
+        "the region leaves out the unknown link");
+  CHECK(chooseRoot(r, chip) != 3, "and the root is a qubit we know");
+
+  Chip clean;
+  clean.qubits.assign(2, ChipQubit{0.01, true});
+  clean.links = {{0, 1, 0.01, true}};
+  UnknownCount none = closeUnknowns(clean);
+  CHECK(none.qubits == 0 && none.links == 0 && none.allLinks == 1,
+        "complete data: nothing changes");
+}
+
 // ---- 2. Root ---------------------------------------------------------------
 static void testRoot() {
   // Path 0-1-2-3. Link errors 0.10, 0.01, 0.01; readout of 2 is bad.
@@ -298,6 +330,7 @@ static void testQasm() {
 int main() {
   const Chip fez = loadFez();
   testRegion();
+  testUnknowns();
   testRoot();
   testNumbering(fez);
   testAssign(fez);

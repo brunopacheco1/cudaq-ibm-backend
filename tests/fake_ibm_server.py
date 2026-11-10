@@ -48,13 +48,19 @@ def load_chip() -> tuple[int, set[tuple[int, int]]]:
 
 
 N_QUBITS, LINKS = load_chip()
-# Calibration data for /properties. Qubit 62 and its links are the best, so
-# the plugin should start its numbering there. Link 62-63 is broken
-# (gate_error 1, as IBM reports it) and qubit 61 is marked not operational:
-# the plugin must route around both.
+# Calibration data for /properties. Qubit 62 and its two links (61-62, 62-63)
+# are the best, so the plugin should start its numbering there. Around it:
+# - link 63-64 is broken (gate_error 1, as IBM reports it);
+# - qubit 56 is marked not operational;
+# - link 60-61 has a gate_error the plugin cannot read (null) in one
+#   direction: the plugin must treat it as broken (decision 0009, item 3).
+# The plugin must route around all three; check_isa rejects a cz on them.
 BEST_QUBIT = 62
-BROKEN_LINK = (62, 63)
-DOWN_QUBIT = 61
+BROKEN_LINK = (63, 64)
+DOWN_QUBIT = 56
+UNREADABLE_LINK = (60, 61)
+# A backend whose /properties request fails: the plugin must stop.
+NO_PROPERTIES_BACKEND = "ibm_no_properties"
 
 
 def link_error(a: int, b: int) -> float:
@@ -66,7 +72,9 @@ def link_error(a: int, b: int) -> float:
 
 
 def usable(a: int, b: int) -> bool:
-    return (link_error(a, b) < 1.0 and DOWN_QUBIT not in (a, b))
+    return (link_error(a, b) < 1.0 and DOWN_QUBIT not in (a, b)
+            and {a, b} != set(UNREADABLE_LINK))
+
 
 app = FastAPI()
 
@@ -129,6 +137,8 @@ async def backend_properties(name: str, request: Request):
     """Calibration data, in IBM's format (see props_fez.json in
     qiskit-ibm-runtime's fake provider)."""
     check_auth(request)
+    if name == NO_PROPERTIES_BACKEND:
+        raise HTTPException(503, "properties are not available")
     date = "2026-11-09T00:00:00Z"
     qubits = []
     for q in range(N_QUBITS):
@@ -140,7 +150,8 @@ async def backend_properties(name: str, request: Request):
         qubits.append(entry)
     gates = [{"gate": "cz", "qubits": [a, b], "name": f"cz{a}_{b}",
               "parameters": [{"date": date, "name": "gate_error", "unit": "",
-                              "value": link_error(a, b)}]}
+                              "value": (None if (a, b) == UNREADABLE_LINK
+                                        else link_error(a, b))}]}
              for a, b in sorted(LINKS)]
     return {"backend_name": name, "qubits": qubits, "gates": gates,
             "general": []}

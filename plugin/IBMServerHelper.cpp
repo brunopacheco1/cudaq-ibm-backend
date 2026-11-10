@@ -15,6 +15,7 @@
 // M3: routing on the chip's wiring, see Layout.h and decision 0009).
 // How this file works: docs/architecture.md. Section numbers (§) refer to it.
 
+#include "ChipData.h"
 #include "Layout.h"
 #include "Qasm2ToIsa.h"
 #include "ResultBits.h"
@@ -198,13 +199,10 @@ class IBMServerHelper : public ServerHelper {
 
   // ---- Chip data for routing (M3) -----------------------------------------
   // GET /backends/{name}/configuration (wiring) and /properties (errors).
-  // One "value" may be a number or a boolean.
-  static double numberOf(const nlohmann::json &v) {
-    if (v.is_boolean())
-      return v.get<bool>() ? 1.0 : 0.0;
-    return v.get<double>();
-  }
-
+  // Fail closed (decision 0009, item 3): if /properties cannot be read we
+  // stop, because without it a cz could land on a broken link and waste QPU
+  // time. A retry is free; mapping_file is the way around. The parsing and
+  // the rules for unreadable entries are in ChipData.h.
   ibm::Chip fetchChip() {
     const bool verifyTls = true;
     const std::string base = baseUrl + "/backends/" + backend;
@@ -212,72 +210,24 @@ class IBMServerHelper : public ServerHelper {
     auto headers = getHeaders();
     const ServerMessage config =
         client.get(base + "/configuration", "", headers, verifyTls);
-
-    ibm::Chip chip;
-    chip.qubits.assign(config.at("n_qubits").get<int>(), {});
-    std::map<std::pair<int, int>, std::size_t> linkIndex;
-    for (const auto &pair : config.at("coupling_map")) {
-      const int a = pair.at(0).get<int>(), b = pair.at(1).get<int>();
-      linkIndex[{a, b}] = chip.links.size();
-      chip.links.push_back({a, b, 0.0, true});
-    }
-
-    // Errors are optional for correctness: without them every qubit scores
-    // the same and the root is the lowest id. So a failed request only
-    // warns, and an entry we cannot read is skipped on its own (counted),
-    // instead of dropping every error rate.
     ServerMessage props;
     try {
       props = client.get(base + "/properties", "", headers, verifyTls);
     } catch (const std::exception &e) {
-      CUDAQ_WARN("IBM: could not read /properties for {} ({}); choosing the "
-                 "routing region without error rates.",
-                 backend, e.what());
-      return chip;
+      throw std::runtime_error(
+          "IBM: cannot read /properties for " + backend + " (" + e.what() +
+          "). It is needed to avoid broken qubits and links. Try again, or "
+          "give a device file with the mapping_file target argument.");
     }
-    std::size_t skipped = 0;
-    if (props.contains("qubits") && props["qubits"].is_array()) {
-      const auto &qubits = props["qubits"];
-      for (std::size_t q = 0; q < qubits.size() && q < chip.qubits.size(); ++q)
-        for (const auto &item : qubits[q]) {
-          try {
-            const auto name = item.at("name").get<std::string>();
-            if (name == "readout_error")
-              chip.qubits[q].readoutError = numberOf(item.at("value"));
-            else if (name == "operational")
-              chip.qubits[q].operational = numberOf(item.at("value")) != 0.0;
-          } catch (const std::exception &) {
-            ++skipped;
-          }
-        }
-    }
-    if (props.contains("gates") && props["gates"].is_array())
-      for (const auto &gate : props["gates"]) {
-        try {
-          if (gate.at("gate").get<std::string>() != "cz" ||
-              gate.at("qubits").size() != 2)
-            continue;
-          auto it = linkIndex.find(
-              {gate["qubits"][0].get<int>(), gate["qubits"][1].get<int>()});
-          if (it == linkIndex.end())
-            continue;
-          // Read both values first, so a bad entry changes nothing.
-          ibm::ChipLink link = chip.links[it->second];
-          for (const auto &param : gate.value("parameters", nlohmann::json{})) {
-            const auto name = param.at("name").get<std::string>();
-            if (name == "gate_error")
-              link.czError = numberOf(param.at("value"));
-            else if (name == "operational")
-              link.operational = numberOf(param.at("value")) != 0.0;
-          }
-          chip.links[it->second] = link;
-        } catch (const std::exception &) {
-          ++skipped;
-        }
-      }
-    if (skipped)
-      CUDAQ_WARN("IBM: skipped {} unreadable entries in /properties for {}.",
-                 skipped, backend);
+
+    ibm::ChipDataReport report;
+    ibm::Chip chip = ibm::chipFromIbmJson(config, props, backend, report);
+    if (!report.clean())
+      CUDAQ_WARN("IBM: /properties for {}: {} unreadable entries, {} links "
+                 "without a cz error (not used), {} qubits without a readout "
+                 "error (never the root).",
+                 backend, report.unreadable, report.unknown.links,
+                 report.unknown.qubits);
     return chip;
   }
 

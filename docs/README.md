@@ -59,4 +59,6 @@ one "superseded by NNNN".
 | [0006](decisions/0006-send-openqasm3-with-physical-qubits.md) | Send OpenQASM 3 with physical qubits `$k` | 2026-11-06 |
 | [0007](decisions/0007-qrmi-later-not-in-v1.md) | QRMI as a later transport, not in v1 | 2026-11-06 |
 | [0008](decisions/0008-test-against-a-fake-ibm-server.md) | Test against a fake IBM server | 2026-11-08 |
-| [0009](decisions/0009-route-with-cudaq-then-assign-qubits.md) | Route with CUDA-Q, then assign IBM qubits to its labels | 2026-11-09 |
+| [0009](decisions/0009-route-with-cudaq-then-assign-qubits.md) | Route with CUDA-Q, then assign IBM qubits to its labels | 2026-11-10 |
+| [0010](decisions/0010-measure-all-then-keep-measured-bits.md) | Measure every qubit in allocation order, then keep the measured bits | 2026-11-10 |
+| [0011](decisions/0011-stop-when-properties-cannot-be-read.md) | Stop when `/properties` cannot be read (fail closed) | 2026-11-10 |

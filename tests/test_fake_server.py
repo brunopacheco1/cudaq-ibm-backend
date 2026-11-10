@@ -42,6 +42,35 @@ def test_properties_mark_broken_link_and_down_qubit():
     down = body["qubits"][fake.DOWN_QUBIT]
     assert {"name": "operational", "value": 0} == {
         k: v for k, v in down[-1].items() if k in ("name", "value")}
+    # One direction of one link has a value the plugin cannot read.
+    a, b = fake.UNREADABLE_LINK
+    assert errors[(a, b)] is None and errors[(b, a)] == 0.01
+
+
+def test_obstacles_leave_the_best_qubit_connected():
+    """The best qubit must keep working links into the rest of the chip,
+    or the plugin would (rightly) never start its numbering there."""
+    adj = {}
+    for a, b in fake.LINKS:
+        if fake.usable(a, b):
+            adj.setdefault(a, set()).add(b)
+    seen, stack = {fake.BEST_QUBIT}, [fake.BEST_QUBIT]
+    while stack:
+        for v in adj.get(stack.pop(), ()):
+            if v not in seen:
+                seen.add(v)
+                stack.append(v)
+    assert len(adj[fake.BEST_QUBIT]) == 2
+    assert len(seen) > 140
+
+
+def test_properties_fail_for_the_no_properties_backend():
+    r = client.get(f"/api/v1/backends/{fake.NO_PROPERTIES_BACKEND}/properties",
+                   headers=AUTH)
+    assert r.status_code == 503
+    assert client.get(
+        f"/api/v1/backends/{fake.NO_PROPERTIES_BACKEND}/configuration",
+        headers=AUTH).status_code == 200
 
 
 def test_backend_endpoints_need_auth():
@@ -59,12 +88,14 @@ def test_cz_on_unwired_pair_is_rejected():
 
 
 def test_cz_on_broken_pair_is_rejected():
-    r = client.post("/api/v1/jobs", headers=AUTH, json=job(["cz $62, $63;"]))
-    assert r.status_code == 400 and "broken" in r.json()["detail"]
+    for a, b in (fake.BROKEN_LINK, fake.UNREADABLE_LINK):
+        r = client.post("/api/v1/jobs", headers=AUTH,
+                        json=job([f"cz ${a}, ${b};"]))
+        assert r.status_code == 400 and "broken" in r.json()["detail"]
 
 
 def test_down_qubit_is_rejected():
-    r = client.post("/api/v1/jobs", headers=AUTH, json=job(["x $61;"]))
+    r = client.post("/api/v1/jobs", headers=AUTH, json=job([f"x ${fake.DOWN_QUBIT};"]))
     assert r.status_code == 400 and "not usable" in r.json()["detail"]
 
 

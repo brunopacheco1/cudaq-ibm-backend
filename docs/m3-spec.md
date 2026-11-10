@@ -1,7 +1,7 @@
 # M3 spec: routing
 
-Date: 2026-11-09. Status: **choices made (§3), code in review; review fixes done, three
-proposals wait for Bruno (decision 0009 items 3-5)**. Deleted when M3 is done
+Date: 2026-11-10. Status: **all choices made (decisions 0009-0011); code done; next is the
+container run, then hardware (§6)**. Deleted when M3 is done
 (facts go to [architecture.md](architecture.md), choices to [decisions/](decisions/)).
 Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified. CUDA-Q file references are in the
@@ -25,9 +25,10 @@ accepted by the fake server, which then checks every `cz` against the real coupl
 - Its default start layout is **identity** (virtual `v` on device qubit `v`), with no layout
   search **[V]** `Passes.td:1376-1383` (`placement="identity"`, `search="none"`). Options
   `placement=auto|greedy` and `search=sabre` exist.
-- A device graph with qubits that cannot be reached fails: "cannot place two-qubit
-  interaction ... on disconnected device topology" **[V]** our experiment, 2026-11-09. So the
-  graph must be pruned first.
+- A device graph with qubits that cannot be reached failed with the default options: "cannot
+  place two-qubit interaction ... on disconnected device topology" **[V]** our experiment,
+  2026-11-09. With greedy placement 0.16.0 can pack a disconnected device **[V]**
+  `Passes.td:1384-1394`; not tried **[U]**. We prune to one connected part anyway.
 - The helper fills `%PLACEHOLDER%` in the YAML at every compile through
   `getPipelineSubstitutions` **[V]** `BaseRemoteRESTQPU.h:225-229`.
 
@@ -67,9 +68,15 @@ So `regtomem` packs the used qubits into 0..m-1 (`RegToMem.cpp:560-590` makes on
 `alloca` per used wire). With the identity start the packing keeps device order; with
 `placement=auto` the labels follow the kernel's qubits, so neither order can be relied on. If routing uses device qubits that are not 0..m-1, the ids we
 receive are wrong, and we cannot rebuild them: the layout is not passed to us (§2.3).
-OQC and Anyon also route and then run `regtomem`, so they may have the same problem **[U]**:
-not tested on their devices. This is the upstream item #5 in [upstream.md](upstream.md),
-now with a small reproduction.
+OQC and Anyon also route and then run `regtomem`, and the same thing happens with their own
+pipelines and device files **[V]** at the level of the code they generate: on Anyon's
+`berkeley-25q` a 3-qubit kernel routed onto {0, 1, 2, 6} comes out as qubits 0..3
+([`experiments/upstream_layout_lost.py`](../experiments/upstream_layout_lost.py)); 47 of 150
+random kernels there and 12 of 150 on OQC `toshiko` leave 0..m-1, none on Anyon
+`telegraph-8q` or on IQM's 20-qubit mock graph
+([`experiments/upstream_layout_sweep.py`](../experiments/upstream_layout_sweep.py)). What
+their servers then do with it is **[U]**: we have no access. This is upstream item #5 in
+[upstream.md](upstream.md).
 
 ### 2.5 IBM side
 
@@ -107,36 +114,81 @@ list of gates on labels, so running it through any one-to-one map to chip qubits
 `cudaq.sample` on the local simulator. CUDA-Q's result lists the measured qubits sorted by
 allocation order (`Mapping.cpp:3330`). Our first pipeline gave the bits in measure-statement
 order, which is wrong when a kernel measures out of order (`mz(q[2]); mz(q[0])`) or measures
-registers in reverse: 11 of 120 random kernels. (An earlier version of the experiment only
-measured in order and wrongly found no problem.)
+registers in reverse: 11 of 120 random kernels. The router options do not matter: the same 6
+of 60 kernels fail with the identity start and with `placement=auto search=sabre` **[V]**
+review run, 2026-11-10. (An earlier version of the experiment only measured in order and
+wrongly found no problem.)
 
-Fix: run `combine-measurements` before routing (then `expand-measurements`,
-`cc-loop-unroll`). The circuit then measures every qubit in allocation order, and
-`output_names` lists the qubits the kernel measured; `processResults` keeps those bits
-(`plugin/ResultBits.h`). 0 of 120 wrong, on path, star, ring and `ibm_fez` graphs.
-`reorderIdx` does not fit IBM: it assumes results sorted by physical qubit.
+Fix ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)): run
+`combine-measurements` before routing (then `expand-measurements`, `cc-loop-unroll`). The
+circuit then measures every qubit in allocation order, and `output_names` lists the qubits the
+kernel measured; `processResults` keeps those bits (`plugin/ResultBits.h`). 0 of 120 wrong, on
+path, star, ring and `ibm_fez` graphs. `reorderIdx` does not fit IBM: it assumes results
+sorted by physical qubit.
 
 ### 2.9 The router's start layout matters
 
 **[V]** `experiments/m3_routing.py`, root 62: two-qubit gate counts after routing.
 
-| Kernel | `placement=identity search=none` (default) | `placement=auto search=sabre` |
-|---|---|---|
-| GHZ-5 chain | 10 | 4 |
-| GHZ-20 chain | 151 | 28 |
-| 12-qubit ring | 78 | 12 |
+| Kernel | identity, none (default) | identity, sabre | auto, none | auto, sabre (ours) |
+|---|---|---|---|---|
+| GHZ-5 chain | 10 | 10 | 4 | 4 |
+| GHZ-20 chain | 151 | 136 | 34 | 28 |
+| 12-qubit ring | 78 | 57 | 12 | 12 |
+| 6-qubit star | 14 | 14 | 11 | 11 |
 
-### 2.10 The search on a nearly full chip
+Most of the gain is the placement; sabre adds a little. A swap is 3 `cx`, so GHZ-20 (19 `cx`)
+needs 3 swaps with our options and 44 with the default. With `placement=auto` the greedy
+start begins at the most central qubit of the device file, not at label 0 **[V]**
+`Mapping.cpp:205-222`. The circuit still ends near our root, because the assignment search
+tries each label's own number first (`Layout.h`, step 4).
 
-**[V]** stress test (random connected circuits on `ibm_fez`, labels shuffled, budget 10^6
-steps): 0 of 40 refused up to 130 labels, 19 of 40 at all 156 (worst 0.36 s). With labels in
-device order: 0 of 40 at every size. A refusal is a clear error, never a wrong placement.
+### 2.10 The search above about 100 qubits
+
+**[V]** [`experiments/m3_search_stress.cpp`](../experiments/m3_search_stress.cpp): random
+connected circuits on `ibm_fez`, 40 cases per cell, budget 10^6 steps. Refused cases:
+
+| Circuit | Labels | 100 | 130 | 150 | 156 |
+|---|---|---|---|---|---|
+| Sparse (tree + 10% of the other links) | device order | 0 | 4 | 0 | 0 |
+| Sparse | shuffled | 0 | 4 | 6 | 7 |
+| Dense (tree + 50%) | either | 0 | 0 | 0 | 0 |
+
+Worst time about 1.2 s. A refusal is a clear error, never a wrong placement. Routed circuits
+are sparse, so the honest limit is "fine up to about 100 qubits". (An earlier claim of "0 of
+40 up to 130" came from a denser generator.)
 
 ### 2.11 Kernels without `mz`
 
-**[V]** A kernel with no `mz` and a qubit it never touches: CUDA-Q drops the idle qubit
-before measuring, so its bit is missing (`cudaq.sample` locally shows it as 0). Same before and
-after the §2.8 fix. Rare; documented, not fixed.
+**[V]** A kernel with no `mz` and a qubit it never touches: CUDA-Q removes the idle qubit
+(`dqe`) before it adds the missing measurements (`Compiler.cpp:421, 467-473`), so that bit is
+missing: a 4-qubit kernel returned 2-bit strings. Same before and after the §2.8 fix. Adding
+`add-measurements` at the start of the mid-level pipeline fixed it at pass level **[V]**
+review run; in the built plugin, and together with `observe`, **[U]**.
+
+CUDA-Q allows this **[V]**: its specification says a qubit that is allocated but not used
+"may not appear in the implicit measurement results" (`algorithmic_primitives.rst`, note
+after the `__global__` rules, tag 0.16.0). `oqc` and `anyon` do the same in emulation, the
+simulator and quantinuum, ionq, infleqtion and braket do not
+([`experiments/m3_idle_qubit.py`](../experiments/m3_idle_qubit.py)). So it is a difference
+from the simulator, not a wrong result, and not an upstream bug. Documented for M3. The fix
+is planned right after M3; since it is a choice and not a bug fix, Bruno was asked whether to
+keep that timing ([roadmap.md](roadmap.md)).
+
+### 2.12 `emulate=True` and `observe`
+
+In emulation CUDA-Q takes `combine-measurements` out of the pipeline and runs it at the end
+**[V]** `Compiler.cpp:307-319`. On a routed circuit that late pass fails with "Multiple qalloc
+statements found" **[V]** at pass level, pip CUDA-Q; **[U]** in the built plugin
+(`tests/run_fake_ibm.py` ends with a probe). `cudaq.observe` on this target is untested
+**[U]**. Both are "not supported in M3" (decision 0010).
+
+### 2.13 `/properties`: fail closed
+
+[Decision 0011](decisions/0011-stop-when-properties-cannot-be-read.md). The parser
+(`plugin/ChipData.h`) reads the FakeFez snapshot with 0 unreadable entries and leaves 154 of
+156 qubits usable **[V]** `plugin/tests/test_chip_data.cpp` in file mode. Whether today's real
+`ibm_fez` reply has the same shape is **[U]** until the free fetch in §6.
 
 ## 3. Choices for Bruno
 
@@ -187,7 +239,8 @@ cannot depend on it.
 
 Recommendation: **A**, plus an override for tests: `mapping_file` target argument, as IQM.
 
-**Chosen:** A.
+**Chosen:** A, with the chip data kept 60 s because CUDA-Q asks twice per `sample`
+(decision 0009 item 3, 2026-11-10).
 
 ## 4. Work split
 
@@ -198,17 +251,39 @@ Recommendation: **A**, plus an override for tests: `mapping_file` target argumen
 | `getPipelineSubstitutions`, fetch, prune, root, numbering, device file, YAML | Claude | Done, unit tested |
 | Assignment search, `$k` relabel in the converter | Claude | Done, unit tested |
 | Result bit order (`combine-measurements`, `ResultBits.h`) | Claude | Done, unit tested (§2.8) |
-| Review fixes (search, one-way broken links, `/properties` parsing, 60 s chip cache, atomic device file) | Claude | Done |
+| Review fixes (search, one-way broken links, 60 s chip cache, atomic device file) | Claude | Done |
+| Fail closed on `/properties` (`ChipData.h`, decision 0011) | Claude | Done, unit tested |
 | Fake server: `/configuration`, `/properties`, reject `cz` on unwired or broken pairs | Claude | Done, `tests/test_fake_server.py` |
-| Build the plugin, run `tests/run_fake_ibm.py` (incl. GHZ-20, `mapping_file`) | Bruno (container) | Next |
-| GHZ-5 on `ibm_fez` | Bruno | After that |
-| Upstream issue for §2.4 | Bruno opens, Claude drafts | Draft next |
+| Build the plugin, run `tests/run_fake_ibm.py` | Bruno (container) | Next (§6 step 1) |
+| Look at real `ibm_fez` data, then the hardware session | Bruno | After that (§6 steps 2-3) |
+| Upstream issues | Bruno opens, Claude drafts | Drafts ready ([upstream.md](upstream.md) #5, #7, #8, with an issue plan); #5 after the hardware session |
 
 ## 5. Unverified, to settle during M3
 
 1. ~~`coupling_map` direction~~ (§2.5, done). How the real `ibm_fez` marks broken qubits
    today: first real run.
 2. Why the `wireset-to-profile-qir` QIR translation failed (§2.4): dropped, D1-B not chosen.
-3. Whether IQM, OQC and Anyon are really affected by §2.4 (for the upstream issue).
+3. ~~Whether IQM, OQC and Anyon are affected by §2.4~~: OQC and Anyon generate wrong ids
+   (§2.4, done); IQM not shown affected. Still unknown: what their servers do with it.
 4. The plugin itself: built only by Bruno; here the helper is syntax-checked against stub
    headers and the pipeline is run with pip CUDA-Q.
+
+## 6. Test plan to close M3
+
+Every free check comes before the one step that spends QPU time.
+
+1. **Container.** Rebuild, then `tests/run_fake_ibm.py`. It must print 6 `OK` lines (Bell,
+   gate rules, GHZ-20, out-of-order `mz`, `mapping_file`, no `/properties`) and one `PROBE`
+   line for `emulate=True`. Note what the probe prints.
+2. **Real data, no job.** Save the real `/configuration` and `/properties` of `ibm_fez` to two
+   files and run `test_chip_data` on them (see its header). Expect 0 unreadable entries and a
+   region close to 156 qubits. That these GETs use no quota is **[U]** but normal.
+3. **Hardware, one session**, with `CUDAQ_LOG_LEVEL=info` (logs the label -> qubit map and the
+   ISA circuit):
+   - GHZ-5, 1000 shots. Proposed pass mark: `00000` + `11111` in at least 80% of the shots.
+     Rough estimate: the M2 Bell pair gave 94.4% with 1 `cz` and 2 readouts; GHZ-5 has 4 `cz`
+     and 5 readouts, so about 85-90% **[U]**. Bruno sets the mark **before** the run.
+   - One non-symmetric kernel, because a GHZ result reads the same in any bit order: 3
+     qubits, `x(q[0]); mz(q[2]); mz(q[0])`, 200 shots. Proposed pass mark: `10` in at least
+     90% of the shots. A wrong bit order would give mostly `01`.
+4. Open the first upstream issue; fold this spec into architecture.md; delete it.

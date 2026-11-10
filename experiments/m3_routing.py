@@ -6,7 +6,7 @@
 Numbers the ibm_fez wiring (tests/data/ibm_fez_coupling.txt) breadth-first
 from a root qubit, as plugin/Layout.h does, writes the device file, and runs
 the jit-mid-level-pipeline from plugin/targets/ibm.yml.in on GHZ and random
-kernels. For each placement option it prints:
+kernels. For each combination of router options it prints:
 
 - qreg: how many labels CUDA-Q emits. More than n means routing borrowed a
   qubit outside 0..n-1 (so labels are not device qubits; m3-spec §2.4).
@@ -32,8 +32,10 @@ from cudaq.mlir.ir import Module  # noqa: E402
 from cudaq.mlir.passmanager import PassManager  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-OPTIONS = ["placement=identity search=none",  # CUDA-Q's default
-           "placement=auto search=sabre"]     # what ibm.yml.in uses
+OPTIONS = ["placement=identity search=none",   # CUDA-Q's default
+           "placement=identity search=sabre",
+           "placement=auto search=none",
+           "placement=auto search=sabre"]      # what ibm.yml.in uses
 
 
 def fez_device(root: int) -> str:
@@ -92,6 +94,7 @@ def main() -> None:
         "ghz5": (5, ["h(q[0])"] + [f"x.ctrl(q[{i}], q[{i + 1}])" for i in range(4)]),
         "ghz20": (20, ["h(q[0])"] + [f"x.ctrl(q[{i}], q[{i + 1}])" for i in range(19)]),
         "ring12": (12, [f"x.ctrl(q[{i}], q[{(i + 1) % 12}])" for i in range(12)]),
+        "star6": (6, ["h(q[0])"] + [f"x.ctrl(q[0], q[{i}])" for i in range(1, 6)]),
     }
     for name, (n, body) in cases.items():
         for options in OPTIONS:
