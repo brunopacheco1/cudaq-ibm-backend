@@ -207,8 +207,23 @@ So our parser, which read only the index in the brackets, saw qubit 0 twice. Fix
 declared; both forms give the same labels (unit tested). The exact text the runtime sends
 is **[U]** until the container run logs it.
 
+The second run found the same kind of gap: the router's `swap` gates reached the helper,
+which has no rule for `swap` (GHZ-20: 3 swaps). `cudaq.translate` had turned them into `cx`.
+Fix: a second `decomposition{...}` after `qubit-mapping` in `ibm.yml.in`, as `iqm.yml`
+repeats its gate-set mapping there **[V]** at pass level: 0 swaps, 28 `cx` for GHZ-20.
+
+What changed in how we check, so that pip CUDA-Q can catch this class of problem:
+
+- [`tests/test_target_yml.py`](../tests/test_target_yml.py) (in CI) compiles kernels with the
+  pipeline of `ibm.yml.in`, then with the gate-changing passes of the runtime's OpenQASM
+  translation (`Pipelines.cpp`, `addPipelineTranslateToOpenQASM`), and checks that only
+  gates with a rewrite rule remain. It fails without the second decomposition.
+- `experiments/m3_bit_order.py` now simulates that compiled kernel itself, not the output
+  of `cudaq.translate`. Result unchanged: before the fix 6 and 5 of 60 wrong, after 0.
+
 Lesson: an experiment with pip `cudaq` shows what the passes do, not what the plugin
-receives. Only a run of the built plugin closes that gap.
+receives. Check the compiled kernel, not `cudaq.translate`, and count a claim as verified
+only after a run of the built plugin.
 
 ## 3. Choices for Bruno
 
