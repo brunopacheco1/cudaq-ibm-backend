@@ -13,7 +13,7 @@ quantum ideas behind each step.
 > results) works against a fake IBM server. M2 (rewriting circuits into IBM's
 > native gates) is done: on 2026-11-09 the plugin ran a Bell pair on `ibm_fez`
 > with 94% of 1000 shots correlated. M3 (routing around broken qubits) ran on
-> `ibm_fez` on 2026-11-10: a 5-qubit GHZ state gave 81% of 1000 shots in `00000`
+> `ibm_fez` on 2026-11-10: a 5-qubit GHZ state gave 90% of 1000 shots in `00000`
 > or `11111`. Expect breaking changes.
 
 ## Quick start

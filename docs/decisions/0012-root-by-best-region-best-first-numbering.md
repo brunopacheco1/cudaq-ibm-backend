@@ -53,14 +53,19 @@ an independent Python script): root **121**, 96.5% / 91.9% / 79.7%. Nine roots g
 - One fixed setting, the patch size 10. The kernel size is not known when the device file is
   written, so it cannot follow the circuit. A 5-qubit job gets the best start of a good
   10-qubit patch, not necessarily the best 5-qubit patch on the chip.
-- The job does not stay strictly inside the first numbers (GHZ-5 used numbers 0, 1, 2, 3 and
-  5), so real gains are somewhat below the table. Not measured on hardware yet **[U]**.
+- The job does not stay strictly inside the first numbers, so real gains are below the
+  table. **Measured** on 2026-11-10 **[V]**: GHZ-5 went from 81.2% (old rule, qubits 112,
+  113, 114, 115, 99) to **90.5%** (new rule, qubits 121 to 125), 1000 shots each, two hours
+  apart on the same calibration. The forecast for the qubits used was 95.0%, so the model
+  overstates the result by a few points (m3-spec §6 step 3). The job took qubit 125 (number
+  14) as its fifth qubit: the label search takes the first placement that fits, not the
+  cheapest.
 - The forecast ignores 1-qubit gate errors, idle time (T1, T2) and crosstalk, and the
   calibration can be a day old (on 2026-11-10 the values were 13 hours old).
 - Cost: 156 patches of 10 qubits per compile, well under a millisecond.
 
 ## Revisit when
 
-A second hardware run does not show the gain; or CUDA-Q gets a noise-aware router or passes
+The forecast stops ranking regions correctly on hardware; or CUDA-Q gets a noise-aware router or passes
 the final layout to the helper ([upstream.md](../upstream.md) #5), which would let the
 placement follow the circuit.
