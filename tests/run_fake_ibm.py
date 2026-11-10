@@ -57,3 +57,103 @@ counts = cudaq.sample(kernel, shots_count=3)
 print(counts)
 assert counts["10"] == 2 and counts["01"] == 1, counts
 print("OK: rx, ry, z, y, s, t, u3 rewrite into ISA gates the server accepts.")
+
+# M3: a 20-qubit GHZ chain. The fake server serves ibm_fez's real wiring
+# (156 qubits). Around the best qubit (62) it marks link 63-64 broken and
+# qubit 56 down, gives link 60-61 a gate_error that cannot be read and
+# qubit 84 an sx error of 1 (a stale benchmark), and rejects any gate on
+# those qubits and any cz that is not on a working link. So acceptance proves the
+# routing, the device file, the fail-closed reading of /properties and the
+# label -> IBM qubit assignment all work together.
+kernel = cudaq.make_kernel()
+q = kernel.qalloc(20)
+kernel.h(q[0])
+for i in range(19):
+    kernel.cx(q[i], q[i + 1])
+kernel.mz(q)
+
+counts = cudaq.sample(kernel, shots_count=3)
+print(counts)
+# Same fixed samples, now read as 20 bits.
+assert counts["1" + "0" * 19] == 2 and counts["01" + "0" * 18] == 1, counts
+print("OK: GHZ-20 routed onto ibm_fez wiring; every cz is on a working link.")
+
+# M3: measurements out of order. CUDA-Q's result lists measured qubits by
+# allocation order, whatever order mz ran in. The pipeline measures every
+# qubit in allocation order and processResults keeps the ones the kernel
+# measured (ResultBits.h). Samples 0x1, 0x1, 0x2 set c[0] (qubit 0) twice
+# and c[1] (qubit 1, not measured by the kernel) once, so the answer is
+# 10, 10, 00. Before the fix c[0] was q[2], and 0x1 came back as "01".
+kernel = cudaq.make_kernel()
+q = kernel.qalloc(3)
+kernel.x(q[0])
+kernel.mz(q[2])
+kernel.mz(q[0])
+
+counts = cudaq.sample(kernel, shots_count=3)
+print(counts)
+assert counts["10"] == 2 and counts["00"] == 1, counts
+print("OK: out-of-order mz comes back in allocation order (q0, q2).")
+
+# M3: the mapping_file override (no /configuration fetch). Node ids are IBM
+# qubit ids: here the path 0-1-2-3-4, which is wired on ibm_fez.
+import tempfile  # noqa: E402
+
+with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+    f.write("Number of nodes: 5\nNumber of edges: 4\n"
+            "0 --> {1}\n1 --> {0, 2}\n2 --> {1, 3}\n3 --> {2, 4}\n4 --> {3}\n")
+cudaq.set_target("ibm",
+                 backend="ibm_fake",
+                 url=f"http://localhost:{PORT}/api",
+                 iam_url=f"http://localhost:{PORT}/identity/token",
+                 mapping_file=f.name)
+kernel = cudaq.make_kernel()
+q = kernel.qalloc(5)
+kernel.h(q[0])
+for i in range(4):
+    kernel.cx(q[0], q[i + 1])  # a star: needs swaps on a path
+kernel.mz(q)
+
+counts = cudaq.sample(kernel, shots_count=3)
+print(counts)
+assert counts["10000"] == 2 and counts["01000"] == 1, counts
+print("OK: mapping_file override routes on the given device file.")
+os.remove(f.name)
+
+# M3: if /properties cannot be read the plugin must stop, not guess (decision
+# 0009, item 3). The fake server answers 503 for this backend's properties.
+cudaq.set_target("ibm",
+                 backend="ibm_no_properties",
+                 url=f"http://localhost:{PORT}/api",
+                 iam_url=f"http://localhost:{PORT}/identity/token")
+kernel = cudaq.make_kernel()
+q = kernel.qalloc(2)
+kernel.h(q[0])
+kernel.cx(q[0], q[1])
+kernel.mz(q)
+try:
+    cudaq.sample(kernel, shots_count=3)
+except Exception as e:  # noqa: BLE001
+    assert "/properties" in str(e), e
+    print("OK: no /properties, no job:", str(e).splitlines()[0][:100])
+else:
+    raise AssertionError("a job was sent although /properties failed")
+
+# Probe, not a test: does emulate=True work with this pipeline? The review
+# expects it to fail (decision 0010). Tell Claude what this prints.
+# The url arguments matter: without them the plugin logs in to the real IBM
+# service, even with emulate=True (it did, with the fake key, on 2026-11-10).
+try:
+    cudaq.set_target("ibm",
+                     emulate=True,
+                     backend="ibm_fake",
+                     url=f"http://localhost:{PORT}/api",
+                     iam_url=f"http://localhost:{PORT}/identity/token")
+    kernel = cudaq.make_kernel()
+    q = kernel.qalloc(3)
+    kernel.x(q[0])
+    kernel.cx(q[0], q[2])
+    kernel.mz(q)
+    print("PROBE emulate=True: worked,", cudaq.sample(kernel, shots_count=10))
+except Exception as e:  # noqa: BLE001
+    print("PROBE emulate=True: failed:", str(e).splitlines()[0][:200])

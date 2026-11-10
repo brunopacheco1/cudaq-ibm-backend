@@ -23,3 +23,26 @@ jobs:
       - uses: actions/checkout@v4
       - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_qasm2_to_isa.cpp -o test_isa
       - run: ./test_isa
+  layout:
+    # C++ unit tests for plugin/Layout.h (M3 routing). Pure functions; reads
+    # the ibm_fez wiring from tests/data, so it runs from the repo root.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_layout.cpp -o test_layout
+      - run: ./test_layout
+  result-bits:
+    # C++ unit tests for plugin/ResultBits.h (IBM samples -> CUDA-Q bits).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_result_bits.cpp -o test_result_bits
+      - run: ./test_result_bits
+  chip-data:
+    # C++ unit tests for plugin/ChipData.h (IBM JSON -> chip, fail closed).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
+      - run: g++ -std=c++20 -Wall -Wextra -Werror -I plugin plugin/tests/test_chip_data.cpp -o test_chip_data
+      - run: ./test_chip_data

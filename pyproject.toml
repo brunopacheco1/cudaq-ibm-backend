@@ -19,7 +19,8 @@ dependencies = [
 [project.optional-dependencies]
 # Local noisy simulation with fake IBM devices (no account needed).
 local = ["qiskit-ibm-runtime>=0.40", "qiskit-aer>=0.17"]
-test = ["cudaq-ibm-backend[local]", "pytest>=8", "responses>=0.25"]
+# fastapi + httpx: tests/test_fake_server.py drives the fake IBM server.
+test = ["cudaq-ibm-backend[local]", "pytest>=8", "responses>=0.25", "fastapi>=0.110", "httpx>=0.27"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

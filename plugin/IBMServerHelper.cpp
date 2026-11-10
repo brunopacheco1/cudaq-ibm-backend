@@ -11,13 +11,14 @@
  ******************************************************************************/
 
 // IBM Quantum backend for CUDA-Q (M1: auth, submit, poll, results;
-// M2: OpenQASM 2 -> IBM ISA OpenQASM 3, see Qasm2ToIsa.h).
+// M2: OpenQASM 2 -> IBM ISA OpenQASM 3, see Qasm2ToIsa.h;
+// M3: routing on the chip's wiring, see Layout.h and decision 0009).
 // How this file works: docs/architecture.md. Section numbers (§) refer to it.
-//
-// Not yet: qubit routing (M3). Circuits must use qubits that are wired
-// together on the chip (for M2: qubits 0 and 1).
 
+#include "ChipData.h"
+#include "Layout.h"
 #include "Qasm2ToIsa.h"
+#include "ResultBits.h"
 #include "common/RestClient.h"
 #include "common/ServerHelper.h"
 #include "nlohmann/json.hpp"
@@ -29,11 +30,16 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <unistd.h> // close, write (mkstemp is in <cstdlib>)
 
 namespace cudaq {
 
@@ -61,6 +67,21 @@ class IBMServerHelper : public ServerHelper {
 
   // CA bundle used to verify IBM's TLS certificates (§2.3).
   std::string caBundle;
+
+  // M3 routing. The chip numbering CUDA-Q routed on (device label -> IBM
+  // qubit), set in getPipelineSubstitutions and used in createJob.
+  // CUDA-Q calls getPipelineSubstitutions twice per sample (once to
+  // compile, once more before createJob), so the chip data is kept for a
+  // short time: both calls then build the same layout, with one fetch.
+  // Correctness does not depend on it: createJob searches for a placement
+  // on whatever layout it has (Layout.h, step 4).
+  ibm::Layout layout;
+  ibm::Chip cachedChip;
+  std::string chipBackend; // backend the cached chip belongs to
+  std::chrono::steady_clock::time_point chipFetched{};
+  static constexpr int CHIP_CACHE_SECONDS = 60;
+  // Device file we wrote (empty when the user gave mapping_file).
+  std::string ownDeviceFile;
 
   // ---- Small helpers -------------------------------------------------------
   static std::string valueOr(const BackendConfig &config,
@@ -176,20 +197,131 @@ class IBMServerHelper : public ServerHelper {
     return token;
   }
 
-  // ---- Result decoding (§3.5) ----------------------------------------------
-  // "0x1" with 2 bits -> "01" (IBM, bit 0 right-most) -> "10" (CUDA-Q,
-  // qubit 0 left-most).
-  static std::string hexToCudaqBits(const std::string &hex,
-                                    std::size_t numBits) {
-    unsigned long long value = std::stoull(hex, nullptr, 16);
-    std::string bits(numBits, '0');
-    for (std::size_t i = 0; i < numBits; ++i)
-      bits[i] = ((value >> i) & 1ULL) ? '1' : '0'; // bit i -> position i
-    return bits;
+  // ---- Chip data for routing (M3) -----------------------------------------
+  // GET /backends/{name}/configuration (wiring) and /properties (errors).
+  // Fail closed (decision 0009, item 3): if /properties cannot be read we
+  // stop, because without it a cz could land on a broken link and waste QPU
+  // time. A retry is free; mapping_file is the way around. The parsing and
+  // the rules for unreadable entries are in ChipData.h.
+  ibm::Chip fetchChip() {
+    const bool verifyTls = true;
+    const std::string base = baseUrl + "/backends/" + backend;
+    RestClient client;
+    auto headers = getHeaders();
+    const ServerMessage config =
+        client.get(base + "/configuration", "", headers, verifyTls);
+    ServerMessage props;
+    try {
+      props = client.get(base + "/properties", "", headers, verifyTls);
+    } catch (const std::exception &e) {
+      throw std::runtime_error(
+          "IBM: cannot read /properties for " + backend + " (" + e.what() +
+          "). It is needed to avoid broken qubits and links. Try again, or "
+          "give a device file with the mapping_file target argument.");
+    }
+
+    ibm::ChipDataReport report;
+    ibm::Chip chip = ibm::chipFromIbmJson(config, props, backend, report);
+    if (!report.clean())
+      CUDAQ_WARN("IBM: /properties for {}: {} unreadable entries, {} links "
+                 "without a cz error (not used), {} qubits without a readout "
+                 "error (never the root).",
+                 backend, report.unreadable, report.unknown.links,
+                 report.unknown.qubits);
+    if (report.staleQubits > 0)
+      CUDAQ_INFO("IBM: {} qubits of {} are not used: IBM reports their sx or "
+                 "x error as 1 (stale benchmark).",
+                 report.staleQubits, backend);
+    return chip;
+  }
+
+  // Write the device file. Each write goes to a fresh private temp file
+  // (mkstemp, written through its descriptor: no name races in /tmp), which
+  // then replaces the previous one in one rename, so CUDA-Q never reads a
+  // half-written file. Same path on every compile; removed in the destructor.
+  void writeDeviceFile(const std::string &text) {
+    std::string tmp =
+        (std::filesystem::temp_directory_path() / "cudaq-ibm-device-XXXXXX")
+            .string();
+    const int fd = mkstemp(tmp.data());
+    if (fd < 0)
+      throw std::runtime_error("IBM: cannot create the device file " + tmp);
+    std::size_t done = 0;
+    while (done < text.size()) {
+      const ssize_t n = ::write(fd, text.data() + done, text.size() - done);
+      if (n <= 0) {
+        close(fd);
+        std::remove(tmp.c_str());
+        throw std::runtime_error("IBM: cannot write the device file " + tmp);
+      }
+      done += static_cast<std::size_t>(n);
+    }
+    close(fd);
+    if (ownDeviceFile.empty()) {
+      ownDeviceFile = tmp;
+      return;
+    }
+    if (std::rename(tmp.c_str(), ownDeviceFile.c_str()) != 0) {
+      std::remove(tmp.c_str());
+      throw std::runtime_error("IBM: cannot replace the device file " +
+                               ownDeviceFile);
+    }
   }
 
 public:
+  ~IBMServerHelper() override {
+    if (!ownDeviceFile.empty()) {
+      std::error_code ec;
+      std::filesystem::remove(ownDeviceFile, ec);
+    }
+  }
+
   const std::string name() const override { return "ibm"; }
+
+  // M3. Called by CUDA-Q at every compile (decision 0009, D3): fetch the
+  // chip (kept 60 s, see `chip` above), number it best-first from the
+  // root with the best 10-qubit patch (decision 0012), and hand CUDA-Q the
+  // device file for `qubit-mapping{device=file(%QPU_ARCH%)}`.
+  std::map<std::string, std::string>
+  getPipelineSubstitutions(const std::filesystem::path &) override {
+    std::string path;
+    if (auto it = backendConfig.find("mapping_file");
+        it != backendConfig.end() && !it->second.empty()) {
+      // Override for tests: a device file whose node ids ARE IBM ids.
+      path = it->second;
+      std::ifstream in(path);
+      if (!in)
+        throw std::runtime_error("IBM: cannot read mapping_file " + path);
+      std::stringstream text;
+      text << in.rdbuf();
+      layout.adj = ibm::parseDeviceFile(text.str());
+      layout.ibmId.resize(layout.adj.size());
+      for (std::size_t i = 0; i < layout.ibmId.size(); ++i)
+        layout.ibmId[i] = static_cast<int>(i);
+    } else {
+      const auto now = std::chrono::steady_clock::now();
+      if (cachedChip.qubits.empty() || chipBackend != backend ||
+          now - chipFetched > std::chrono::seconds(CHIP_CACHE_SECONDS)) {
+        cachedChip = fetchChip();
+        chipBackend = backend;
+        chipFetched = now;
+      }
+      const ibm::Region region = ibm::usableRegion(cachedChip);
+      const int root = ibm::chooseRoot(region, cachedChip);
+      layout = ibm::bestFirstLayout(region, cachedChip, root);
+      writeDeviceFile(ibm::deviceFileText(layout.adj));
+      path = ownDeviceFile;
+      const ibm::Patch patch =
+          ibm::growPatch(region, cachedChip, root, ibm::ROOT_REGION_SIZE);
+      CUDAQ_INFO("IBM: {} of {} qubits usable on {}; numbering starts at "
+                 "qubit {}; forecast for the first {} qubits: {:.1f}%",
+                 region.qubits.size(), cachedChip.qubits.size(), backend, root,
+                 patch.ibmId.size(), 100.0 * patch.forecast);
+    }
+    CUDAQ_INFO("IBM: device file for routing: {}", path);
+    // Quoted like IQM does, to protect the path inside the pass option.
+    return {{"%QPU_ARCH%", "'" + path + "'"}};
+  }
 
   // §4 initialize. Called on set_target and again inside future::get().
   void initialize(BackendConfig config) override {
@@ -227,9 +359,30 @@ public:
     std::vector<ServerMessage> jobs;
     jobs.reserve(circuitCodes.size());
     for (const auto &circuitCode : circuitCodes) {
+      // M3: CUDA-Q routed the circuit, but then packed the qubits it used
+      // into labels 0..m-1 (m3-spec §2.4). Find a device qubit for every
+      // label such that each 2-qubit gate sits on a link (Layout.h, step 4).
+      if (layout.adj.empty())
+        throw std::runtime_error(
+            "IBM: no chip layout; the kernel was not compiled for 'ibm'.");
+      CUDAQ_INFO("IBM: OpenQASM 2 from CUDA-Q for {}:\n{}", circuitCode.name,
+                 circuitCode.code);
+      const auto interactions = ibm::qasm2Interactions(circuitCode.code);
+      const auto place = ibm::assignQubits(interactions.numQubits,
+                                           interactions.pairs, layout.adj);
+      std::vector<int> physical(place.size());
+      std::string mapText;
+      for (std::size_t i = 0; i < place.size(); ++i) {
+        physical[i] = layout.ibmId[place[i]];
+        mapText += (i ? " " : "") + std::to_string(i) + "->" +
+                   std::to_string(physical[i]);
+      }
+      CUDAQ_INFO("IBM: qubit labels -> IBM qubits for {}: {}", circuitCode.name,
+                 mapText);
+
       // M2: CUDA-Q gives us OpenQASM 2 in textbook gates; IBM only accepts
       // OpenQASM 3 in its native gates (an "ISA circuit").
-      const auto isa = ibm::qasm2ToIsaQasm3(circuitCode.code);
+      const auto isa = ibm::qasm2ToIsaQasm3(circuitCode.code, physical);
       CUDAQ_INFO("IBM: ISA circuit for {}:\n{}", circuitCode.name, isa.qasm3);
       ServerMessage job;
       job["program_id"] = "sampler";
@@ -296,29 +449,24 @@ public:
     const auto &reg = data.begin().value();
     const auto &samples = reg.at("samples");
 
-    // Number of bits: prefer what CUDA-Q told us it measured; fall back on
-    // IBM's num_bits (§3.5), then on the widest sample.
-    std::size_t numBits = 0;
+    // Our circuit measures every qubit in allocation order (combine-
+    // measurements in ibm.yml.in), so c[i] is qubit i. Keep the qubits the
+    // user measured, as CUDA-Q's output_names lists them (ResultBits.h).
+    std::vector<std::string> hexSamples;
+    for (const auto &s : samples)
+      hexSamples.push_back(s.get<std::string>());
+    std::size_t numBits = reg.value("num_bits", 0);
+    if (numBits == 0)
+      numBits = ibm::widestSample(hexSamples);
+    std::vector<std::size_t> measured;
     if (auto it = outputNames.find(jobId); it != outputNames.end())
-      numBits = it->second.size();
-    if (numBits == 0)
-      numBits = reg.value("num_bits", 0);
-    if (numBits == 0)
-      for (const auto &s : samples) {
-        auto v = std::stoull(s.get<std::string>(), nullptr, 16);
-        std::size_t width = 0;
-        while (width < 64 && (v >> width) != 0)
-          ++width;
-        numBits = std::max(numBits, width);
-      }
-    if (numBits == 0)
-      numBits = 1;
-    if (numBits > 64)
-      throw std::runtime_error("IBM: more than 64 measured bits not supported");
+      for (const auto &[result, info] : it->second)
+        measured.push_back(info.qubitNum);
+    const auto keep = ibm::keptBits(measured, numBits);
 
     CountsDictionary counts;
-    for (const auto &s : samples)
-      ++counts[hexToCudaqBits(s.get<std::string>(), numBits)];
+    for (const auto &hex : hexSamples)
+      ++counts[ibm::pickBits(ibm::hexToBits(hex, numBits), keep)];
     return sample_result(ExecutionResult(counts));
   }
 };

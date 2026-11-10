@@ -25,7 +25,7 @@ What CUDA-Q 0.16 can do **[V]** experiments with the pip wheel's MLIR bindings, 
 | Decompose to `{cz, rz, sx, x}` | Fails: "failed to legalize operation 'quake.h'"; no patterns for that basis (`DecompositionPatterns.cpp`) |
 | Decompose to a textbook basis `{h, rx, ry, rz, x, z, cx}` | Works, but leaves `y` and `u3` as they are (observed QASM2, 2026-11-08) |
 | Keep physical qubit ids | Fails: `regtomem` renumbers to 0..n-1 (`RegToMem.cpp:121-140`); the layout `mapping_v2p` is not passed to the helper (`KernelExecution.h:23-32`) |
-| Routing quality | Mediocre: GHZ-20 on Fez needed 23 swaps; not noise-aware |
+| Routing quality | Mediocre: GHZ-20 on Fez needed 23 swaps; not noise-aware. Corrected 2026-11-10: 44 swaps with the default options, 3 with `placement=auto search=sabre` ([m3-spec.md](../m3-spec.md) §2.9) |
 | Topology with isolated qubits | Error "disconnected device topology" (`Mapping.cpp:3189`); prune them first |
 
 ## Options
