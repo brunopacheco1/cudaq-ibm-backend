@@ -44,7 +44,7 @@ them also routes, so this combination is ours to maintain.
   the idle qubit before it adds the measurements **[V]** `Compiler.cpp:421, 467-473`.
   CUDA-Q's specification allows it, and `oqc` and `anyon` do the same
   ([m3-spec.md](../m3-spec.md) §2.11). A fix exists (`add-measurements` early in the
-  pipeline); when to add it is open ([roadmap.md](../roadmap.md)).
+  pipeline); planned for M4 (Bruno, 2026-11-10; [roadmap.md](../roadmap.md)).
 
 ## Revisit when
 
