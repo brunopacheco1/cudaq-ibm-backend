@@ -1,7 +1,8 @@
 # Upstream contributions to CUDA-Q
 
 Date: 2026-11-10. Status: living list. Opened so far: item 5, as
-[NVIDIA/cuda-quantum#5882](https://github.com/NVIDIA/cuda-quantum/issues/5882).
+[NVIDIA/cuda-quantum#5882](https://github.com/NVIDIA/cuda-quantum/issues/5882), and item 1, as
+[NVIDIA/cuda-quantum#5886](https://github.com/NVIDIA/cuda-quantum/issues/5886).
 Reader: Bruno, before opening an issue or PR on NVIDIA/cuda-quantum.
 Tags: **[V]** verified (source given), **[U]** unverified.
 File references are in the CUDA-Q `0.16.0` tag.
@@ -18,7 +19,7 @@ Rules before opening anything:
 
 | # | Change | Why (evidence) | Removes here | Status |
 |---|---|---|---|---|
-| 1 | Call `getHeaders()` inside the poll loop in `Future::get`, like `getCookies()` | Headers are built once per job, so tokens expire during long queue waits **[V]** `runtime/common/Future.cpp` | Limit in [decision 0004](decisions/0004-accept-token-expiry-in-v1.md) | Not started. First PR to open. |
+| 1 | Call `getHeaders()` inside the poll loop in `Future::get`, like `getCookies()` | Headers are built once per job, so tokens expire during long queue waits **[V]** `runtime/common/Future.cpp` (same in 0.16.0 and on `main` on 2026-11-10); a poll failed with HTTP 401 in `tests/run_token_expiry.py` on 2026-11-10 **[V]** (fake server, tokens of 12 s) | Limit in [decision 0004](decisions/0004-accept-token-expiry-in-v1.md) | **Opened** 2026-11-10 as a feature request: [#5886](https://github.com/NVIDIA/cuda-quantum/issues/5886). Not a bug report: no shipped backend is shown to fail. NVIDIA's `Contributing.md` asks for an issue first, then a pull request once the team answers **[V]**. Bruno writes the fix after the answer. |
 | 2 | `RestClient`: verify TLS by default (`enableSsl = true`), including the Executor's job POST | Today the default turns certificate checks off **[V]** `runtime/common/RestClient.h:49-76`, `RestClient.cpp:75` | Nothing in our code, but a security gap for all REST backends | Not started. Not a public issue: NVIDIA's `SECURITY.md` asks for security reports by its form or e-mail **[V]**. Bruno decides whether to report. |
 | 3 | `RestClient`: allow form bodies and a way to turn off body logging | `post()` always JSON-dumps and logs the body at INFO **[V]** `runtime/common/RestClient.cpp` | libcurl IAM call ([decision 0005](decisions/0005-iam-login-with-libcurl.md)) | Idea; lower priority |
 | 4 | Decomposition patterns to IBM's basis `{rz, sx, x, cz}` | `basis-conversion` fails on `quake.h` for that basis **[V]** experiment, `DecompositionPatterns.cpp` | Most of `plugin/Qasm2ToIsa.h` | After M2, using our proven rules |
@@ -29,13 +30,13 @@ Rules before opening anything:
 
 ## Issue plan
 
-Drafts, in NVIDIA's bug-report layout, are in the project files (`cudaq-ibm/upstream/`), not
+Drafts, in the layout of NVIDIA's issue forms, are in the project files (`cudaq-ibm/upstream/`), not
 in this repository, so that they can change freely until opened.
 
 | Order | Issue | Open when | Why this order |
 |---|---|---|---|
 | 1 | #5, final layout | Opened 2026-11-10: [#5882](https://github.com/NVIDIA/cuda-quantum/issues/5882) | The hardware runs show our workaround gives right answers on a real chip, which makes the report stronger. The evidence itself does not depend on them. |
-| 2 | #1, `getHeaders()` in the poll loop | With a PR; next, now that M3 is done | Already agreed ([decision 0004](decisions/0004-accept-token-expiry-in-v1.md)). |
+| 2 | #1, `getHeaders()` in the poll loop | Opened 2026-11-10 as a feature request: [#5886](https://github.com/NVIDIA/cuda-quantum/issues/5886). The pull request follows the team's answer. | Already agreed ([decision 0004](decisions/0004-accept-token-expiry-in-v1.md)). The failing poll is shown with the built plugin (2026-11-10). |
 | - | #8, `reorderIdx` | Not planned | Weak: modelled, and no shipped target is affected. |
 | - | #2, TLS checks off by default | Bruno's call | Security reports do not go through GitHub issues (`SECURITY.md`). |
 | - | #7, idle qubits | Dropped | Documented behaviour. |

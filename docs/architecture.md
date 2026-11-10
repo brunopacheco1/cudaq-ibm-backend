@@ -282,6 +282,12 @@ Free checks first; only the last one spends QPU time.
   the `mapping_file` override, and a backend without `/properties` (must stop). One `PROBE`
   line shows that `emulate=True` still fails (§8). Passed 2026-11-10 **[V]**: GHZ-20 was sent
   with 28 `cz` and no swap.
+- `tests/run_token_expiry.py`: needs the built plugin. Starts the fake server with
+  `FAKE_IBM_TOKEN_TTL=12` (every login gets a new token that stops working after 12 s) and
+  a job that needs 5 polls, then reports whether the poll survived (§8 item 1). The server
+  mode itself is tested in CI (`tests/test_fake_server.py`). Ran 2026-11-10 with the built
+  plugin on CUDA-Q 0.16.0 **[V]**: polls 1 to 3 passed, poll 4 got HTTP 401 after 15 s, all
+  four with the same token.
 - `tests/run_ibm_hardware.py`: real jobs on `ibm_fez`, only with Bruno's go (§9.8).
 - Every `set_target("ibm")` in a test must pass the localhost `url` and `iam_url`. A probe
   without them once sent the fake key to IBM's real login (rejected, HTTP 400).
@@ -292,6 +298,13 @@ How to run them: [development.md](development.md) §4.
 ## 8. Known limits
 
 1. **Token expiry during long queue waits** ([decision 0004](decisions/0004-accept-token-expiry-in-v1.md)).
+   `tests/run_token_expiry.py` shows it in half a minute against the fake server
+   (tokens of 12 s). Ran 2026-11-10 with the built plugin on CUDA-Q 0.16.0 **[V]**: the
+   plugin logged in three times (chip data, job POST, start of the poll loop; with tokens
+   shorter than its 60 s refresh margin every `getHeaders()` logs in), then every poll
+   carried the third token, and the fourth poll failed with HTTP 401 three seconds after
+   that token expired. Not shown against the real service **[U]**: that needs a queue wait
+   of about an hour.
 2. **One register, Sampler only.** No Estimator, sessions or error mitigation.
 3. **`check-ibm` lit test** **[U]**: it calls `set_target('ibm')` without credentials, which
    `initialize` refuses. Not run since M1; fix in M4.
