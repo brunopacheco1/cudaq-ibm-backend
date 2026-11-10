@@ -49,8 +49,6 @@ def kernel():
     mz(q)
 
 
-
-
 def device_file() -> str:
     """Anyon's berkeley-25q.txt as shipped with CUDA-Q.
 
