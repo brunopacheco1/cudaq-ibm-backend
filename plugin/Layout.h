@@ -10,7 +10,7 @@
 // CUDA-Q routes the kernel (pass `qubit-mapping`) on a device graph that we
 // write as a file. This header builds that graph from IBM's backend data and
 // turns CUDA-Q's qubit labels back into IBM qubit ids. Background and
-// evidence: docs/m3-spec.md (until M3 ends), decisions 0009 and 0012.
+// evidence: docs/architecture.md §9, decisions 0009 and 0012.
 //
 // The steps, in order:
 //   1. usableRegion()      drop broken qubits and links, keep the largest
@@ -208,7 +208,7 @@ inline Region usableRegion(const Chip &chip) {
 // labels lands on or near labels 0..m-1. (The router itself does not stay
 // there: with placement=auto its greedy start begins at the most central
 // qubit of the device file. That does not matter, because only the packed
-// labels reach us; m3-spec §2.4.)
+// labels reach us; architecture.md §9.2.)
 //
 // The root: grow such a patch of ROOT_REGION_SIZE qubits from every qubit
 // and keep the root whose patch has the best forecast.
@@ -388,8 +388,8 @@ inline std::vector<std::vector<int>> parseDeviceFile(const std::string &text) {
 //
 // Why this is needed: after routing, CUDA-Q's `regtomem` pass packs the
 // device qubits the circuit uses into labels 0..m-1, and the real layout is
-// not passed to us (m3-spec §2.4). Routing often borrows a qubit outside
-// 0..n-1, so we cannot assume label = device qubit.
+// not passed to us (architecture.md §9.2). Routing often borrows a qubit
+// outside 0..n-1, so we cannot assume label = device qubit.
 //
 // Why any valid assignment is correct: a circuit is a list of gates on
 // labels. Running it on chip qubits through any one-to-one map where every
