@@ -446,6 +446,9 @@ Every free check comes before the one step that spends QPU time.
        error of the five (2.4%; `00001` and `11110` are the largest wrong outcomes, 37
        shots). Reason: 136 hangs off 123, not 124, and the label search (`assignQubits`)
        takes the first placement that fits; it does not look for the cheapest. The chain
-       121, 122, 123, 136, 143 (numbers 0, 1, 2, 4, 5) also fits and forecasts 96.6%
-       instead of 95.0%. A search that prefers low numbers is a possible later step.
+       121, 122, 123, 136, 143 (numbers 0, 1, 2, 4, 5) also fits **[V]**
+       `tests/data/ibm_fez_coupling.txt`, and forecasts about 96.5% instead of 95.0%
+       **[U]** (its five readout errors are from the file; the cz errors of 123-136 and
+       136-143 are assumed to be 0.25%). A search that prefers low numbers is a possible
+       later step.
 4. Open the first upstream issue; fold this spec into architecture.md; delete it.
