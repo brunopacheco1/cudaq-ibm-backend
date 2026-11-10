@@ -118,7 +118,9 @@ def zero_state(n_qubits: int) -> np.ndarray:
 
     Question to answer first: which index i is the basis state 00...0?
     """
-    raise NotImplementedError
+    state = np.zeros(2 ** n_qubits, dtype=complex)
+    state[0] = 1
+    return state
 
 
 def gate_matrix(name: str, angle: float | None = None) -> np.ndarray:
@@ -133,7 +135,16 @@ def gate_matrix(name: str, angle: float | None = None) -> np.ndarray:
 
     Check you can explain: why does sx applied twice equal x?
     """
-    raise NotImplementedError
+    if name == "x":
+        return np.array([[0, 1], [1, 0]], dtype=complex)
+    if name == "sx":
+        return 0.5 * np.array([[1 + 1j, 1 - 1j], [1 - 1j, 1 + 1j]], dtype=complex)
+    if name == "rz":
+        if angle is None:
+            raise ValueError("rz gate requires an angle")
+        return np.diag([np.exp(-0.5j * angle), np.exp(0.5j * angle)])
+    else:
+        raise ValueError(f"unknown gate: {name}")
 
 
 def apply_gate(state: np.ndarray, matrix: np.ndarray, qubit: int) -> np.ndarray:
@@ -149,7 +160,8 @@ def apply_gate(state: np.ndarray, matrix: np.ndarray, qubit: int) -> np.ndarray:
     are small); numpy's reshape can do it without a loop if you like.
     Do not change `state` in place: return a new array.
     """
-    raise NotImplementedError
+    blocks = state.reshape(-1, 2, 2 ** qubit)
+    return np.einsum("ab,hbl->hal", matrix, blocks).reshape(-1)
 
 
 def apply_cz(state: np.ndarray, a: int, b: int) -> np.ndarray:
@@ -161,20 +173,32 @@ def apply_cz(state: np.ndarray, a: int, b: int) -> np.ndarray:
     Check you can explain: why does it not matter which of the two qubits
     is called the control?
     """
-    raise NotImplementedError
+    i = np.arange(len(state))
+    mask = (1 << a) | (1 << b)
+    return np.where((i & mask) == mask, -state, state)
 
 
 def run(circuit: Circuit) -> np.ndarray:
     """Step 5. Start from zero_state and apply every gate of the circuit in
     order. Return the final state (measurements are not applied here)."""
-    raise NotImplementedError
+    state = zero_state(circuit.n_qubits)
+    for gate in circuit.gates:
+        if gate.name in ("x", "sx", "rz"):
+            matrix = gate_matrix(gate.name, gate.angle)
+            state = apply_gate(state, matrix, gate.qubits[0])
+        elif gate.name == "cz":
+            a, b = gate.qubits
+            state = apply_cz(state, a, b)
+        else:
+            raise ValueError(f"unknown gate: {gate.name}")
+    return state
 
 
 def probabilities(state: np.ndarray) -> np.ndarray:
     """Step 6. The Born rule: the probability of finding basis state i is
     the squared size of amplitude i. Returns 2**n real numbers that sum
     to 1."""
-    raise NotImplementedError
+    return np.abs(state) ** 2
 
 
 def classical_value(index: int, measures: dict[int, int]) -> int:
@@ -189,7 +213,11 @@ def classical_value(index: int, measures: dict[int, int]) -> int:
     measures {0: 2, 1: 0}: c[0] = qubit 2 = 0, c[1] = qubit 0 = 1, so the
     result is 0b10 = 2.
     """
-    raise NotImplementedError
+    result = 0
+    for j, k in measures.items():
+        if (index >> k) & 1:
+            result |= (1 << j)
+    return result
 
 
 def sample(circuit: Circuit, shots: int, rng: np.random.Generator) -> list[str]:
@@ -202,4 +230,7 @@ def sample(circuit: Circuit, shots: int, rng: np.random.Generator) -> list[str]:
     Returns one string per shot in IBM's format: Python's hex(), such as
     "0x0", "0x3", "0x1f".
     """
-    raise NotImplementedError
+    final_state = run(circuit)
+    prob = probabilities(final_state)
+    indices = rng.choice(len(final_state), size=shots, p=prob)
+    return [f"0x{classical_value(i, circuit.measures):x}" for i in indices]
