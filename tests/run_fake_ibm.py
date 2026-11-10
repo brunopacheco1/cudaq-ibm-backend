@@ -140,8 +140,14 @@ else:
 
 # Probe, not a test: does emulate=True work with this pipeline? The review
 # expects it to fail (decision 0010). Tell Claude what this prints.
+# The url arguments matter: without them the plugin logs in to the real IBM
+# service, even with emulate=True (it did, with the fake key, on 2026-11-10).
 try:
-    cudaq.set_target("ibm", emulate=True)
+    cudaq.set_target("ibm",
+                     emulate=True,
+                     backend="ibm_fake",
+                     url=f"http://localhost:{PORT}/api",
+                     iam_url=f"http://localhost:{PORT}/identity/token")
     kernel = cudaq.make_kernel()
     q = kernel.qalloc(3)
     kernel.x(q[0])
