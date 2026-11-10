@@ -171,9 +171,9 @@ CUDA-Q allows this **[V]**: its specification says a qubit that is allocated but
 after the `__global__` rules, tag 0.16.0). `oqc` and `anyon` do the same in emulation, the
 simulator and quantinuum, ionq, infleqtion and braket do not
 ([`experiments/m3_idle_qubit.py`](../experiments/m3_idle_qubit.py)). So it is a difference
-from the simulator, not a wrong result, and not an upstream bug. Documented for M3. The fix
-is planned right after M3; since it is a choice and not a bug fix, Bruno was asked whether to
-keep that timing ([roadmap.md](roadmap.md)).
+from the simulator, not a wrong result, and not an upstream bug. Documented for M3. Bruno
+moved the fix to M4 on 2026-11-10, to be done with `emulate=True` and `observe`
+([roadmap.md](roadmap.md)).
 
 ### 2.12 `emulate=True` and `observe`
 

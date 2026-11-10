@@ -30,11 +30,11 @@ Free checks first, QPU time last ([m3-spec.md](m3-spec.md) §6 has the details a
    bit order).
 4. Open the first upstream issue ([upstream.md](upstream.md) #5); fold m3-spec.md into
    architecture.md and close M3.
-5. Right after M3: measure idle qubits in kernels without `mz` (`add-measurements` early in
-   the pipeline, with a fake-server test; m3-spec §2.11). CUDA-Q's specification allows
-   today's behaviour, so this is a choice, not a bug fix; Bruno was asked on 2026-11-10
-   whether to keep it here, move it to M4 or drop it.
-6. M4: make the fake server simulate small circuits, so CI checks results, not only gates.
+5. M4: make the fake server simulate small circuits, so CI checks results, not only gates.
+6. M4: measure idle qubits in kernels without `mz` (`add-measurements` early in the
+   pipeline, with a fake-server test; m3-spec §2.11), together with `emulate=True` and
+   `observe`, which touch the same passes. Moved from "right after M3" by Bruno on
+   2026-11-10: CUDA-Q's specification allows today's behaviour, so it is not a bug fix.
 
 ## 3. Open risks
 
@@ -47,7 +47,7 @@ Evidence is in the linked decision records.
 | Tests check gates and links, not results: the fake server returns 3 fixed samples | **[V]** `tests/fake_ibm_server.py` | Non-symmetric kernel in the hardware session; simulating fake server in M4 |
 | `emulate=True` and `observe` on the `ibm` target | **[V]** emulation fails at pass level, **[U]** in the built plugin; `observe` untested | Not supported in M3 ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)); probe in `run_fake_ibm.py` |
 | CUDA-Q will change `sample` and `observe` | **[V]** `import cudaq` 0.16.0 prints a `FutureWarning` saying so; the page it links has no details yet (read 2026-11-10) | Watch the release notes; the bit-order rule in [decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md) depends on today's `sample` contract |
-| Kernel with no `mz` and an idle qubit returns a shorter bit string | **[V]** m3-spec §2.11. Allowed by CUDA-Q's specification; `oqc` and `anyon` do the same | Documented; fix planned (next step 5), timing open |
+| Kernel with no `mz` and an idle qubit returns a shorter bit string | **[V]** m3-spec §2.11. Allowed by CUDA-Q's specification; `oqc` and `anyon` do the same | Documented for M3; fix in M4 (next step 6), Bruno 2026-11-10 |
 | Label -> qubit search refuses large circuits | **[V]** fine up to about 100 qubits (m3-spec §2.10) | Goes away when upstream passes the layout ([upstream.md](upstream.md) #5) |
 | Real `/properties` differs from the FakeFez snapshot | **[U]** | Next step 2; the plugin stops rather than guess ([decision 0011](decisions/0011-stop-when-properties-cannot-be-read.md)) |
 | Plugin ABI vs pip `cudaq` | **[U]** untested | Check in M4 |
