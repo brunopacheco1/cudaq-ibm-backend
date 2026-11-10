@@ -30,6 +30,10 @@ Forecast for the first 5, 10 and 20 numbers, same calibration **[V]** (Python on
 
 (A fourth mix, new root with breadth-first numbering, was worse at 20 qubits: 46.3%.)
 
+Row C as the plugin computes it **[V]** (`test_chip_data` in file mode, same data, equal to
+an independent Python script): root **121**, 96.5% / 91.9% / 79.7%. Nine roots grow the same
+10-qubit patch and tie, 124 among them; the tie rule below picks 121.
+
 ## Decision (Bruno, 2026-11-10)
 
 **C.** In `plugin/Layout.h`:
