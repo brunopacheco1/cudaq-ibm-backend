@@ -22,7 +22,9 @@ rough, for part-time work. Each milestone is shippable.
 
 1. Upstream: the first issue is open since 2026-11-10,
    [NVIDIA/cuda-quantum#5882](https://github.com/NVIDIA/cuda-quantum/issues/5882) ([upstream.md](upstream.md) #5). Follow the answer.
-   Next: the `getHeaders()` feature request (#1); the pull request follows NVIDIA's answer.
+   The second, a feature request, is open since the same day:
+   [NVIDIA/cuda-quantum#5886](https://github.com/NVIDIA/cuda-quantum/issues/5886) ([upstream.md](upstream.md) #1,
+   `getHeaders()` on every poll). Follow the answer; the pull request comes after it.
 2. M4: make the fake server simulate small circuits, so CI checks results, not only gates.
 3. M4: measure idle qubits in kernels without `mz` (`add-measurements` early in the
    pipeline, with a fake-server test; [architecture.md](architecture.md) §8 item 6),
