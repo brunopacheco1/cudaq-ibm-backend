@@ -53,7 +53,7 @@ def parity(bits: str) -> int:
     Question to answer first: why does only the number of 1s matter, and
     not where they are?
     """
-    raise NotImplementedError
+    return -1 if bits.count("1") % 2 else 1
 
 
 def expectation(counts: dict[str, int]) -> float:
@@ -63,7 +63,9 @@ def expectation(counts: dict[str, int]) -> float:
     {"00": 495, "11": 449, "01": 39, "10": 17}. The result lies between -1
     and +1.
     """
-    raise NotImplementedError
+    total_shots = sum(counts.values())
+    weighted_sum = sum(parity(bits) * count for bits, count in counts.items())
+    return weighted_sum / total_shots
 
 
 def standard_error(counts: dict[str, int]) -> float:
@@ -77,7 +79,9 @@ def standard_error(counts: dict[str, int]) -> float:
     Check you can explain: why is the error 0 when every shot agrees, and
     largest when the average is 0?
     """
-    raise NotImplementedError
+    E = expectation(counts)
+    N = sum(counts.values())
+    return math.sqrt((1 - E ** 2) / N)
 
 
 def measure_in(kernel, qubits, basis: str) -> None:
@@ -95,7 +99,17 @@ def measure_in(kernel, qubits, basis: str) -> None:
     Gates are added with `kernel.h(qubits[k])`, `kernel.sdg(qubits[k])`,
     `kernel.s(qubits[k])` and so on; finish with `kernel.mz(qubits)`.
     """
-    raise NotImplementedError
+    if basis not in {"xx", "yy", "zz", "xy", "xz", "yx", "yz", "zx", "zy"}:
+        raise ValueError(f"unknown basis: {basis}")
+
+    for k, axis in enumerate(basis):
+        if axis == "x":
+            kernel.h(qubits[k])
+        elif axis == "y":
+            kernel.sdg(qubits[k])
+            kernel.h(qubits[k])
+    
+    kernel.mz(qubits)
 
 
 # --------------------------------------------------------------------------
