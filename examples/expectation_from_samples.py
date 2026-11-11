@@ -102,7 +102,7 @@ def measure_in(kernel, qubits, basis: str) -> None:
       in place of `sdg` every Y value flips its sign: "yy" hides that (two
       flips cancel), the tests with a single y ("yz", "xy") show it.
     """
-    if basis not in {"xx", "yy", "zz", "xy", "xz", "yx", "yz", "zx", "zy"}:
+    if set(basis) - set("xyz"):
         raise ValueError(f"unknown basis: {basis}")
 
     for k, axis in enumerate(basis):
