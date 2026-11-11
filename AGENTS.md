@@ -44,6 +44,10 @@ plugin/build_against_wheel.sh                 # writes build/external/ibm
 python3 tests/fake_ibm_server.py 62455 &      # fake IBM, never the real one
 python3 tests/run_fake_ibm.py                 # eight OK lines (protocol, fixed samples)
 python3 tests/run_fake_ibm_results.py         # 25 OK lines (results; starts its own server)
+
+# The wheel: build it, then test it as installed (fresh environment, same two scripts).
+plugin/build_wheel.sh                         # writes dist/cudaq_ibm-<version>-py3-none-<platform>.whl
+plugin/test_wheel.sh dist/*.whl 0.16.0        # ends with "RESULT: the wheel ... passes all four checks."
 ```
 
 The other way is inside a CUDA-Q 0.16 source build in NVIDIA's Linux dev container. Only
@@ -81,6 +85,9 @@ When you add a rewrite rule (after Bruno has derived it), add a case to `kRuleCa
   trailer. An agent cannot sign with Bruno's key, so its commits do not go to `main` as they
   are: Bruno merges each PR with **Squash and merge**, which makes one commit signed by
   GitHub.
+- **Releases.** A version tag (`v0.1.0`) publishes wheels to a GitHub Release
+  ([docs/development.md](docs/development.md) §7). Only Bruno creates tags and releases;
+  an agent never does, and never uploads to PyPI.
 - **Upstream.** CUDA-Q contributions need a DCO sign-off (`Signed-off-by:`). It is Bruno's
   personal statement: only he adds it, with `git commit -s`. Candidates are in
   [docs/upstream.md](docs/upstream.md).

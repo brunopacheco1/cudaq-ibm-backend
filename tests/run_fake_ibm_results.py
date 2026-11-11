@@ -40,6 +40,7 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import plugin_under_test  # noqa: E402
 from run_token_expiry import start_server, stop_server  # noqa: E402
 
 PORT = 62457
@@ -232,7 +233,7 @@ def main() -> int:
             failures.append(name)
 
     try:
-        cudaq.register_backend_path("build/external/ibm")
+        plugin_under_test.register(cudaq)
         # Always the localhost urls: without them the plugin talks to IBM.
         cudaq.set_target("ibm",
                          backend="ibm_fake",

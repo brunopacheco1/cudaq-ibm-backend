@@ -21,8 +21,10 @@ os.environ["IBM_QUANTUM_CRN"] = "test-crn"
 
 import cudaq  # noqa: E402
 
+import plugin_under_test  # noqa: E402
+
 PORT = 62455
-cudaq.register_backend_path("build/external/ibm")
+plugin_under_test.register(cudaq)
 cudaq.set_target("ibm",
                  backend="ibm_fixed_samples",
                  url=f"http://localhost:{PORT}/api",

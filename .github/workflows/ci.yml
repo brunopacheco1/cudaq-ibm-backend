@@ -1,7 +1,15 @@
 name: tests
+# Once per commit: on pull requests, and on main after a merge. (A plain
+# "push" trigger ran every job twice for each commit of a pull request.)
 on:
   push:
+    branches: [main]
   pull_request:
+
+# A new commit on a pull request replaces the run of the commit before it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-latest

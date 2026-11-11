@@ -1,6 +1,6 @@
 # Architecture: how the C++ plugin works today
 
-Date: 2026-11-10. Status: living document. Update it in the same PR as the code it describes.
+Date: 2026-11-11. Status: living document. Update it in the same PR as the code it describes.
 Reader: anyone working on the plugin.
 Tags: **[V]** verified (source given), **[U]** unverified.
 CUDA-Q file references like `runtime/common/Future.cpp` are in the `0.16.0` tag.
@@ -208,8 +208,10 @@ Content-Type:  application/json
 | `plugin/tests/test_qasm2_to_isa.cpp` | Tiny unitary simulator; proves each rewrite rule up to global phase. Plain `g++`, runs in CI | Done |
 | `plugin/tests/test_layout.cpp`, `test_chip_data.cpp`, `test_result_bits.cpp` | Unit tests of the three headers above. Plain `g++`, run in CI. `test_chip_data` also reads two saved IBM replies (file mode) | Done |
 | `tests/test_target_yml.py` | Compiles kernels with the pipeline of `ibm.yml.in` using pip `cudaq` and checks which gates come out (§9.7). In CI | Done |
-| `plugin/tests/check_plugin.cpp` | Lit test inherited from CUDA-Q's `mock_rest` example (`ninja check-ibm`) | **[U]** may fail, §8 |
-| `plugin/CMakeLists.txt`, `plugin/python/*`, `plugin/pyproject.toml.in` | Build as a CUDA-Q external project; Python package with a `cudaq.backends` entry point | From `mock_rest`; still named `cudaq_example_ibm` (M4) |
+| `plugin/CMakeLists.txt` | Builds the library and the target file inside a CUDA-Q source build, as an external project | From `mock_rest` |
+| `plugin/build_against_wheel.sh` | Builds the same two files against pip `cudaq`, without a source build ([development.md](development.md) §6). CI and the wheel use it | Done (M4) |
+| `plugin/build_wheel.sh`, `plugin/packaging/*` | The wheel `cudaq-ibm`: Python package `cudaq_ibm_plugin` with a `cudaq.backends` entry point around the library; `wheel_platform.py` chooses the platform tag ([development.md](development.md) §7) | Done (M4) |
+| `plugin/test_wheel.sh`, `tests/plugin_under_test.py` | Installs a wheel next to pip `cudaq` in a fresh environment and runs the fake-server scripts with the installed plugin. In CI (`wheels.yml`) | Done (M4) |
 | `tests/fake_ibm_server.py`, `tests/test_fake_server.py`, `tests/run_fake_ibm.py` | Fake IBM with the `ibm_fez` wiring, its own tests (CI), and end-to-end runs through the built plugin (§7) | Done (M3) |
 | `tests/isa_simulator.py`, `tests/test_isa_simulator.py` | Statevector simulator for native-gate circuits (`rz`, `sx`, `x`, `cz`, measurements at the end), no noise; the fake server answers jobs with it. The quantum functions are Bruno's. Its tests compare it with Qiskit (CI) | Done (M4) |
 | `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 25 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
@@ -346,12 +348,18 @@ How to run them: [development.md](development.md) §4.
    that token expired. Not shown against the real service **[U]**: that needs a queue wait
    of about an hour.
 2. **One register, Sampler only.** No Estimator, sessions or error mitigation.
-3. **`check-ibm` lit test** **[U]**: it calls `set_target('ibm')` without credentials, which
-   `initialize` refuses. Not run since M1; fix in M4.
+3. **`check-ibm` lit test: removed in M4.** It came with the `mock_rest` example, needed a
+   CUDA-Q source build and was never run after M1. The fake-server scripts in CI cover
+   what it checked (the target loads and a kernel runs), for a local build and for the
+   installed wheel.
 4. **Plugin vs pip `cudaq` ABI**: a plugin built against the pip wheel loads into pip
-   `cudaq` 0.16.0 and 0.16.0.post1 on Linux x86_64 and passes the fake-server cases **[V]**
-   CI job `plugin`. Whether a plugin built in the dev container loads into pip `cudaq`,
-   and aarch64 and macOS: **[U]**.
+   `cudaq` 0.16.0 and 0.16.0.post1 and passes the fake-server cases, on Linux x86_64 and
+   aarch64 **[V]** CI job `plugin` (x86_64) and workflow `wheels` (both), 2026-11-11. The
+   release wheel is built once, against `cudaq` 0.16.0 with GCC 14.2.1 (the `manylinux_2_28`
+   image), while the `cudaq` wheel itself was built with GCC 12.2.1; it still passes with
+   both `cudaq` releases, on glibc 2.28 with Python 3.11 and on Ubuntu 24.04 with Python
+   3.14. Whether a plugin built in the dev container loads into pip `cudaq`, and macOS:
+   **[U]**.
 5. **Large circuits may be refused.** The label search (§9.3) gives up after 10^6 steps
    with a clear error, never a wrong placement. Random connected circuits on `ibm_fez`, 40
    cases per cell, refused cases **[V]** `experiments/m3_search_stress.cpp`:

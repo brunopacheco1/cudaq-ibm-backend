@@ -1,0 +1,34 @@
+# The wheel of the C++ `ibm` plugin. plugin/build_wheel.sh copies this file,
+# setup.py, the package folder and the built library into one folder and
+# builds the wheel there. Not used by the CUDA-Q source build (CMakeLists.txt).
+
+[build-system]
+requires = ["setuptools>=77"]   # 77: the `license` and `license-files` keys
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cudaq-ibm"              # working name, to settle before PyPI (docs/m4-spec.md, D3)
+version = "0.1.0rc1"            # the release tag must be "v" + this
+description = "Run CUDA-Q kernels on IBM Quantum hardware: cudaq.set_target(\"ibm\"). Unofficial, not affiliated with IBM or NVIDIA."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+# One library file serves every cudaq release listed in the CI matrix
+# (.github/workflows/wheels.yml). Widen this only together with that list.
+dependencies = ["cudaq>=0.16.0,<0.17"]
+
+[project.urls]
+Repository = "https://github.com/brunopacheco1/cudaq-ibm-backend"
+
+[project.entry-points."cudaq.backends"]
+ibm = "cudaq_ibm_plugin:register"
+
+# lib/ and targets/ hold no Python code. setuptools still wants every folder
+# inside a package named here, or it warns that the folder "would be ignored".
+[tool.setuptools]
+packages = ["cudaq_ibm_plugin", "cudaq_ibm_plugin.lib", "cudaq_ibm_plugin.targets"]
+
+[tool.setuptools.package-data]
+"cudaq_ibm_plugin.lib" = ["*.so"]
+"cudaq_ibm_plugin.targets" = ["*.yml"]

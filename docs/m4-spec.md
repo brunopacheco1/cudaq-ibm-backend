@@ -1,6 +1,6 @@
 # M4 spec: results checked in CI, idle qubits, emulation, observe, packaging
 
-Date: 2026-11-10. Status: **decisions taken by Bruno on 2026-11-10 (§3); in progress, steps 1 to 3 of §4 done, step 4 next.**
+Date: 2026-11-10. Status: **decisions taken by Bruno on 2026-11-10 (§3); in progress, steps 1 to 4 of §4 done, step 5 (the hardware run from the wheel) next.**
 Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified.
 "Today's runs" means: cloud container, Ubuntu 24.04 x86_64, g++ 13.3, Python 3.13, pip
@@ -190,7 +190,7 @@ Smallest useful step first; each step is one PR.
 | 1 | CI job: build the plugin against the wheel (F1), start the fake server, run the six existing cases. Matrix: `cudaq` 0.16.0 and 0.16.0.post1. **Done 2026-11-10**: `plugin/build_against_wheel.sh`, CI job `plugin`, [development.md](development.md) §6 | Claude |
 | 2 | Simulating fake server: `simulate()` (D4), server plumbing, a backend name that keeps the fixed samples for the bit-order case. Tests compare with CUDA-Q's simulator: random `x`/`cx` kernels (one right answer each), GHZ, the gate-rule kernel (so `rx`, `ry`, `u3`, `s`, `t` are checked for physics end to end, not only accepted), partial and missing `mz`. **Done 2026-11-10**: `tests/isa_simulator.py` (Bruno's eight functions, compared with Qiskit), the server answers with it, `tests/run_fake_ibm_results.py` in CI job `plugin`; what it checks and its limits: [architecture.md](architecture.md) §7 | `simulate()`: Bruno. Rest: Claude |
 | 3 | Pipeline: remove `dqe` (D5), idle-qubit test, clear errors for `emulate=True` and `observe` (D6, D7), the `sample`-based expectation example. **Done**: pipeline and errors 2026-11-10 ([architecture.md](architecture.md) §8 items 6 and 7); the example 2026-11-11, `examples/expectation_from_samples.py` (Bruno's four functions, compared with `cudaq.observe` on the simulator) | Pipeline and errors: Claude. Example: Bruno |
-| 4 | Packaging: rename `cudaq_example_ibm`, wheels for Linux x86_64 and aarch64 built in a `manylinux_2_28` image (D2), release workflow to a GitHub Release (D3), trademark attribution in the README, `--install-nvqpp` check, README install section. Remove the inherited lit test `check-ibm`: it needs a source build, and steps 1 and 4 cover what it checked | Claude |
+| 4 | Packaging: rename `cudaq_example_ibm`, wheels for Linux x86_64 and aarch64 built in a `manylinux_2_28` image (D2), release workflow to a GitHub Release (D3), trademark attribution in the README, `--install-nvqpp` check, README install section. Remove the inherited lit test `check-ibm`: it needs a source build, and steps 1 and 4 cover what it checked. **Done 2026-11-11**: package `cudaq_ibm_plugin` in the wheel `cudaq-ibm` 0.1.0rc1, `plugin/build_wheel.sh`, `plugin/test_wheel.sh`, workflow `wheels`; both wheels built and all four test jobs green in [run 43100474789](https://github.com/brunopacheco1/cudaq-ibm-backend/actions/runs/43100474789); commands and the release steps: [development.md](development.md) §7. Not run yet: the `release` job (it needs a tag, step 5) | Claude |
 | 5 | You: one kernel on `ibm_fez` from the installed wheel. Then close M4: facts to `architecture.md`, choices to `decisions/`, delete this spec | Bruno, then Claude |
 
 Effort: about 4 to 6 part-time days. The roadmap said 2 to 3, but that was packaging alone.
@@ -211,8 +211,8 @@ version and keeps the mode.
 | Risk | Plan |
 |---|---|
 | Wheel-based build breaks on a later `cudaq` (headers and binary drift apart) | CI matrix per supported version; the dev container build stays as the fallback |
-| `manylinux_2_28` image has another GCC than the wheel (12.2.1) **[U]** | Try in step 4; fallback: NVIDIA's `manylinux` devdeps image |
-| aarch64 build **[U]** | Step 4 |
+| `manylinux_2_28` image has another GCC than the wheel (12.2.1) | **[V]** 2026-11-11: the image has GCC 14.2.1, and the plugin built with it passes all tests with pip `cudaq` 0.16.0 and 0.16.0.post1. The fallback was not needed |
+| aarch64 build | **[V]** 2026-11-11: built on GitHub's `ubuntu-24.04-arm` runner, same tests pass |
 | No macOS wheel: on a Mac the plugin runs only in a Linux container | Open item (D2), after M4 |
 | The package name contains "IBM" | D3: settle before PyPI |
 | The numpy simulator and the plugin share a wrong idea about bit order | The reference is CUDA-Q's simulator on the original kernel, and the two hardware runs of M3 already confirmed the order on a real chip |

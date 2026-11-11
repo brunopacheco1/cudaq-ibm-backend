@@ -1,6 +1,6 @@
 # Development: build and test the C++ plugin
 
-Date: 2026-11-10. Status: living document.
+Date: 2026-11-11. Status: living document.
 Reader: anyone building the plugin. Why a container and not a native Mac build:
 [decision 0002](decisions/0002-build-in-linux-dev-container.md).
 
@@ -216,5 +216,65 @@ take about 20 seconds. The CI job `plugin` runs exactly these steps for every `c
 release the plugin supports.
 
 Limits: the library runs on systems whose C library is at least as new as the build
-machine's, so a file built on Ubuntu 24.04 is not a release build. aarch64 and macOS are
-not tested **[U]**.
+machine's, so a file built on Ubuntu 24.04 is not a release build. On aarch64 the script
+runs in the workflow of §7 **[V]**; macOS is not tested **[U]**.
+
+## 7. The wheel and a release
+
+The wheel is what a user installs: one file that `pip` puts next to pip `cudaq`. It holds
+the library of §6, the target file and a small Python package, `cudaq_ibm_plugin`, whose
+only job is to tell CUDA-Q where the two are. `import cudaq` finds it through the entry
+point `cudaq.backends` **[V]** pip `cudaq` 0.16.0, `cudaq/__init__.py`.
+
+```bash
+plugin/build_wheel.sh                      # writes dist/cudaq_ibm-<version>-py3-none-<platform>.whl
+plugin/test_wheel.sh dist/*.whl 0.16.0     # fresh environment: install, then the tests of §6 with the installed plugin
+```
+
+`test_wheel.sh` makes four checks: `cudaq.has_target("ibm")` right after `pip install`,
+the eight protocol cases, the 25 result kernels, and
+`python -m cudaq_ibm_plugin --install-nvqpp` (it links the package into
+`~/.local/share/cudaq/plugins/ibm`, where the C++ compiler `nvq++` looks). The scripts in
+`tests/` use the installed plugin when `CUDAQ_IBM_PLUGIN=installed` is set, and refuse to
+run if a local build and an installed wheel could mix (`tests/plugin_under_test.py`).
+
+**Why the file name matters.** The end of the name says where the wheel may be installed:
+
+| Tag | Meaning |
+|---|---|
+| `py3-none` | Any Python 3: the library is C++ and does not depend on the Python version |
+| `manylinux_2_28_x86_64` | Linux on x86_64 with glibc 2.28 or newer. The same tag as pip `cudaq` itself |
+| `linux_x86_64` | This machine only. What you get when you build outside the old image |
+
+A library asks the system's C library (glibc) for functions by version. Built on Ubuntu
+24.04 it asks for glibc 2.38 and does not load on anything older **[V]** m4-spec F2. So
+release wheels are built inside `quay.io/pypa/manylinux_2_28`, the image the Python
+community keeps for this: an old Linux (glibc 2.28) with a current compiler.
+`plugin/packaging/wheel_platform.py` reads what the built library asks for and gives it
+the tag `manylinux_2_28` only if that is true; the release build fails otherwise.
+
+**The workflow** `.github/workflows/wheels.yml` runs on every pull request, on `main` and
+on version tags:
+
+| Job | What it does |
+|---|---|
+| `build` (x86_64, aarch64) | `build_wheel.sh` inside the manylinux image, against `cudaq` 0.16.0, the oldest release the wheel supports |
+| `test` (2 machines x 2 systems) | `test_wheel.sh` with that wheel: on the oldest system it claims (the manylinux image, Python 3.11, `cudaq` 0.16.0) and on a current one (Ubuntu 24.04, Python 3.14, `cudaq` 0.16.0.post1) |
+| `release` (tags only) | Checks that the tag is `v` + the version in the wheels, then creates a GitHub Release with the two wheels |
+
+First green run, 2026-11-11 **[V]** [run 43100474789](https://github.com/brunopacheco1/cudaq-ibm-backend/actions/runs/43100474789): the image has GCC 14.2.1 and glibc
+2.28, both wheels got the tag `manylinux_2_28`, and all four `test` jobs passed. The
+`release` job has not run yet **[U]**: it runs only for a tag.
+
+**To make a release** (Bruno):
+
+1. Set `version` in `plugin/packaging/pyproject.toml`, merge.
+2. Tag that commit on `main` and push the tag: `git tag v0.1.0rc1 && git push origin v0.1.0rc1`.
+3. The workflow builds, tests and publishes. A version with letters (`0.1.0rc1`) becomes
+   a pre-release.
+
+A release cannot be taken back cleanly once someone has downloaded it: make a new version
+instead of replacing files.
+
+Not covered: macOS (open item, m4-spec D2); `nvq++` itself (pip `cudaq` has no `nvq++`, so
+only the link is checked) **[U]**; PyPI (m4-spec D3: the name must be settled first).

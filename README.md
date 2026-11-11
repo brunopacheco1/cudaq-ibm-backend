@@ -7,16 +7,70 @@ hardware providers, but **IBM is not one of them**. This project adds that
 missing link. It is also a learning project, so the code explains the
 quantum ideas behind each step.
 
-> **Status.** Phase 1, the Python prototype, ran a Bell pair on `ibm_fez` on
-> 2026-11-05: 95% of 1000 shots were correlated, as expected. Phase 2, the
-> C++ CUDA-Q plugin, is in progress. M1 (IBM login, job submit, poll and
-> results) works against a fake IBM server. M2 (rewriting circuits into IBM's
-> native gates) is done: on 2026-11-09 the plugin ran a Bell pair on `ibm_fez`
-> with 94% of 1000 shots correlated. M3 (routing around broken qubits) ran on
-> `ibm_fez` on 2026-11-10: a 5-qubit GHZ state gave 90% of 1000 shots in `00000`
-> or `11111`. Expect breaking changes.
+> **Status.** Early and unofficial: a learning project, not affiliated with IBM or
+> NVIDIA. The C++ plugin runs `cudaq.sample` on IBM hardware: on `ibm_fez` a Bell pair
+> gave 94% of 1000 shots correlated (2026-11-09) and a 5-qubit GHZ state 90% of 1000
+> shots in `00000` or `11111` (2026-11-10). It is packaged as a wheel for Linux. Not
+> supported yet: `cudaq.observe`, `emulate=True`, macOS. Expect breaking changes.
+> Milestones and risks: [docs/roadmap.md](docs/roadmap.md).
 
-## Quick start
+## Install
+
+You need Linux (x86_64 or aarch64, glibc 2.28 or newer) and Python 3.11 to 3.14: the same
+as pip `cudaq` 0.16. On a Mac, use a Linux container.
+
+Wheels are attached to the
+[releases](https://github.com/brunopacheco1/cudaq-ibm-backend/releases) of this
+repository. Replace `<version>` with the release you want:
+
+```bash
+pip install cudaq
+pip install "https://github.com/brunopacheco1/cudaq-ibm-backend/releases/download/v<version>/cudaq_ibm-<version>-py3-none-manylinux_2_28_$(uname -m).whl"
+```
+
+That is all: `import cudaq` finds the plugin by itself. To build the wheel yourself, see
+[docs/development.md](docs/development.md) §7. The package is not on PyPI, and its name
+`cudaq-ibm` is a working name.
+
+## Use
+
+Credentials come from two environment variables, never from code (see
+[Credentials](#credentials)).
+
+```python
+import cudaq
+
+cudaq.set_target("ibm", backend="ibm_fez")
+
+@cudaq.kernel
+def bell():
+    q = cudaq.qvector(2)
+    h(q[0])
+    cx(q[0], q[1])
+    mz(q)
+
+print(cudaq.sample(bell, shots_count=1000))   # sends a job: this spends QPU time
+```
+
+What happens on the way: CUDA-Q routes the kernel onto the chip's wiring, around qubits
+and links IBM reports as broken; the plugin rewrites it into IBM's native gates (`rz`,
+`sx`, `x`, `cz`), sends it to IBM's Sampler and turns the answer back into CUDA-Q's bit
+order. How: [docs/architecture.md](docs/architecture.md).
+
+- Works: `cudaq.sample`, with kernels made of `x`, `y`, `z`, `h`, `s`, `sdg`, `t`, `tdg`,
+  `rx`, `ry`, `rz`, `r1`, `u3`, `cx`, `cz` and `swap` (each one is in the result checks
+  of CI).
+- Refused with a clear error: `cudaq.observe` and `emulate=True`. For expectation values,
+  [examples/expectation_from_samples.py](examples/expectation_from_samples.py) shows how
+  to compute them from `sample` counts.
+- Known limits: [docs/architecture.md](docs/architecture.md) §8.
+
+## The Python prototype
+
+Phase 1 of this project was a prototype in Python (`src/cudaq_ibm`), which uses Qiskit for
+the hardware-ready step. It ran the first Bell pair on `ibm_fez` on 2026-11-05 (95% of
+1000 shots correlated). It stays in the repository as a readable reference; it is not in
+the wheel.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # Python 3.11 to 3.14 (CUDA-Q has no 3.15 wheels yet)
@@ -38,7 +92,7 @@ simulate_locally(bell).counts                 # {'00': 483, '11': 484, '01': 17,
 run_on_ibm(bell, backend="ibm_fez").counts    # real hardware, needs credentials
 ```
 
-## How it works
+How the prototype works:
 
 ```
 CUDA-Q kernel ──► OpenQASM 2 ──► Qiskit circuit ──► ISA circuit ──► OpenQASM 3
@@ -69,9 +123,9 @@ CUDA-Q style counts ◄── hex samples ◄── IBM Sampler job (REST, clien
 
 ## Develop the C++ plugin
 
-The C++ plugin in `plugin/` is built inside a CUDA-Q 0.16 source build, in NVIDIA's
-Linux dev container. Step-by-step setup, daily use, build and tests:
-[docs/development.md](docs/development.md). How the plugin works:
+The plugin is in `plugin/`. It builds in about a minute against the pip `cudaq`
+([docs/development.md](docs/development.md) §6), or inside a CUDA-Q source build in
+NVIDIA's Linux dev container (§1 to §4, for work on CUDA-Q itself). How the plugin works:
 [docs/architecture.md](docs/architecture.md).
 
 ## Credentials
@@ -79,15 +133,16 @@ Linux dev container. Step-by-step setup, daily use, build and tests:
 You need an [IBM Quantum Platform](https://quantum.cloud.ibm.com) account. The
 free Open Plan gives about 10 minutes of QPU time per rolling 28 days.
 
-Put two values in a `.env` file at the repo root (it is git-ignored), or
-export them as environment variables. Never commit them or paste them
-anywhere public.
+The plugin reads two environment variables. Never put the values in code, commit them or
+paste them anywhere public.
 
 ```bash
-# .env
-IBM_QUANTUM_API_KEY=...        # IBM Cloud API key
-IBM_QUANTUM_CRN=crn:v1:...     # your instance's CRN (instance page)
+export IBM_QUANTUM_API_KEY=...        # IBM Cloud API key
+export IBM_QUANTUM_CRN=crn:v1:...     # your instance's CRN (instance page)
 ```
+
+The prototype and the scripts in `tests/` that talk to real hardware also read them from a
+`.env` file at the repository root (it is git-ignored):
 
 ```bash
 python examples/bell.py ibm_fez
@@ -100,27 +155,35 @@ pip install -e ".[test]"
 pytest
 ```
 
-The tests never touch IBM. A fake REST server (`responses`) stands in for
-IBM, and a fake chip (`FakeFez`) stands in for the hardware.
+The tests never touch IBM. A fake IBM server (`tests/fake_ibm_server.py`) stands in for
+IBM: it checks every circuit against the wiring of `ibm_fez` and simulates it, so CI
+compares the plugin's results with CUDA-Q's own simulator. All commands:
+[docs/development.md](docs/development.md).
 
-## Known limits (phase 1)
+## Known limits of the prototype
 
-- Only the Sampler (counts). No Estimator (expectation values) yet.
+- Only the Sampler (counts). No Estimator (expectation values).
 - The transpiler ignores qubit error rates, so it may pick noisy qubits.
 - There is no error mitigation, sessions or batching.
 
 ## Roadmap
 
 1. **Python prototype** (done). The go/no-go point was one successful real-QPU run.
-2. **C++ plugin.** This uses CUDA-Q 0.16's [backend plugin
+2. **C++ plugin** (in progress). It uses CUDA-Q 0.16's [backend plugin
    framework](https://nvidia.github.io/cuda-quantum/0.16.0/using/extending/backend.html):
-   a `ServerHelper` subclass, a `targets/ibm.yml` file and CMake, installed with
-   pip. Then `cudaq.set_target("ibm")` works like any other provider. The
-   milestones (M0-M5) and their status are in
-   [docs/roadmap.md](docs/roadmap.md). To build it, see
-   [docs/development.md](docs/development.md).
+   a `ServerHelper` subclass and a `targets/ibm.yml` file, installed with pip, so that
+   `cudaq.set_target("ibm")` works like any other provider. The milestones (M0-M5) and
+   their status are in [docs/roadmap.md](docs/roadmap.md).
 3. **Docs, a blog post**, and a conversation with the CUDA-Q maintainers.
 
-## License
+## License and trademarks
 
-Apache-2.0, the same license as CUDA-Q and Qiskit.
+Apache-2.0, the same license as CUDA-Q and Qiskit. Parts of `plugin/` and `tests/` are
+adapted from CUDA-Q, copyright NVIDIA Corporation & Affiliates (see [NOTICE](NOTICE)).
+
+This is an independent project. It is not affiliated with, endorsed by or supported by
+IBM or NVIDIA.
+
+IBM, IBM Quantum and Qiskit are trademarks of International Business Machines
+Corporation, registered in many jurisdictions worldwide. CUDA-Q is a product of NVIDIA
+Corporation. Other names may be trademarks of their owners.

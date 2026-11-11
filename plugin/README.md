@@ -19,9 +19,8 @@ How it works: [../docs/architecture.md](../docs/architecture.md).
 | `targets/ibm.yml.in` | The target: compiler pipeline and target arguments. |
 | `CMakeLists.txt` | Builds the plugin as a CUDA-Q external project. |
 | `build_against_wheel.sh` | Builds the plugin against the pip `cudaq` wheel, without a CUDA-Q source build. CI uses it. |
-| `python/`, `pyproject.toml.in` | Python package with a `cudaq.backends` entry point (still named `cudaq_example_ibm`; renamed in M4). |
+| `build_wheel.sh`, `test_wheel.sh`, `packaging/` | The wheel: Python package `cudaq_ibm_plugin` with a `cudaq.backends` entry point, built around the library and tested as installed ([../docs/development.md](../docs/development.md) §7). |
 | `tests/test_qasm2_to_isa.cpp`, `tests/test_layout.cpp`, `tests/test_chip_data.cpp`, `tests/test_result_bits.cpp` | Unit tests for the four headers. Plain `g++`, no CUDA-Q needed (run `test_layout` from the repo root; `test_chip_data` needs nlohmann/json). |
-| `tests/check_plugin.cpp`, `tests/lit.*` | Lit test inherited from `mock_rest` (`ninja check-ibm`). |
 
 ## Build
 
@@ -41,8 +40,7 @@ cmake -B build -DCUDAQ_EXTERNAL_PROJECTS=ibm \
 ninja -C build -j 2 cudaq-example-serverhelper-ibm
 ```
 
-Output: `build/external/ibm/` with `targets/ibm.yml`, `lib/libcudaq-serverhelper-ibm.so` and
-the Python package files.
+Output: `build/external/ibm/` with `targets/ibm.yml` and `lib/libcudaq-serverhelper-ibm.so`.
 
 ## Use
 
@@ -54,7 +52,7 @@ export IBM_QUANTUM_CRN=crn:v1:...
 ```python
 import cudaq
 
-cudaq.register_backend_path("build/external/ibm")   # not needed once pip-installed (M4)
+cudaq.register_backend_path("build/external/ibm")   # a local build; not needed with the installed wheel
 cudaq.set_target("ibm", backend="ibm_fez")
 
 @cudaq.kernel
@@ -87,12 +85,16 @@ done
 # End to end against the fake IBM server: see ../docs/development.md §4.
 ```
 
-`ninja -C build check-ibm` runs the inherited lit test. **Unverified:** it calls
-`set_target('ibm')` without IBM credentials, which `initialize` now refuses, so it probably
-fails until it is adapted (M4).
+## Install as a package
 
-## Install as a package (M4, not ready)
+Users install the wheel from a release of this repository (see the README at the
+repository root). To build and test it: [../docs/development.md](../docs/development.md) §7.
 
-The build output is a Python package (`python3 -m pip install build/external/ibm`), and
-`python3 -m cudaq_example_ibm --install-nvqpp` registers it for `nvq++`. Whether a plugin
-built in the dev container loads into a pip-installed `cudaq` (ABI match) is not tested yet.
+```sh
+plugin/build_wheel.sh                    # writes dist/cudaq_ibm-<version>-py3-none-<platform>.whl
+plugin/test_wheel.sh dist/*.whl 0.16.0   # install in a fresh environment and run the tests
+```
+
+`python3 -m cudaq_ibm_plugin --install-nvqpp` links the installed package into the folder
+where `nvq++` looks for plugins. The link is tested; `nvq++` with this plugin is not
+**[U]**.
