@@ -214,7 +214,8 @@ Content-Type:  application/json
 | `plugin/test_wheel.sh`, `tests/plugin_under_test.py` | Installs a wheel next to pip `cudaq` in a fresh environment and runs the fake-server scripts with the installed plugin. In CI (`wheels.yml`) | Done (M4) |
 | `tests/fake_ibm_server.py`, `tests/test_fake_server.py`, `tests/run_fake_ibm.py` | Fake IBM with the `ibm_fez` wiring, its own tests (CI), and end-to-end runs through the built plugin (§7) | Done (M3) |
 | `tests/isa_simulator.py`, `tests/test_isa_simulator.py` | Statevector simulator for native-gate circuits (`rz`, `sx`, `x`, `cz`, measurements at the end), no noise; the fake server answers jobs with it. The quantum functions are Bruno's. Its tests compare it with Qiskit (CI) | Done (M4) |
-| `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 25 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
+| `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 26 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
+| `tests/gate_rule_kernel.py`, `tests/run_ibm_hardware_gates.py` | A 10-qubit kernel of `rx`, `ry`, `z`, `y` and `u3` with one certain answer: a wrong rewrite rule leaves a known qubit at about half or flips it (§7). The script sends it to real hardware (spends QPU time) or, with `--fake`, to the fake server | Written 2026-11-11; not run on hardware yet |
 | `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
@@ -296,7 +297,7 @@ Free checks first; only the last one spends QPU time.
   (refused, and `sample` works after it) and `emulate=True` (refused), see §8 item 7.
   Passed 2026-11-10 **[V]**: GHZ-20 was sent with 28 `cz` and no swap.
 - `tests/run_fake_ibm_results.py`: needs the built plugin; CI job `plugin` runs it. It
-  starts its own fake server (port 62457, jobs done at the first poll) and runs 25 kernels
+  starts its own fake server (port 62457, jobs done at the first poll) and runs 26 kernels
   twice: on CUDA-Q's simulator (`qpp-cpu`) and through the plugin against the simulating
   server. The results must agree:
   - 12 random kernels of `x` and `cx` on 2 to 7 qubits, measured in full, in part and out
@@ -309,6 +310,15 @@ Free checks first; only the last one spends QPU time.
     one- and two-qubit gate of the kernel builder, also with `mz` on two qubits and with no
     `mz`. The outcome distributions (20 000 shots) must be within 0.03 of the reference
     (total variation distance; shot noise is about 0.01).
+  - The gate-rule kernel of `tests/gate_rule_kernel.py`: ten qubits, no two-qubit gate,
+    two qubits each for `rx`, `ry`, `z`, `y` and `u3`, and one certain answer
+    (`1011011110`). It is built for real hardware, where a certain answer is easy to tell
+    from noise: each gate is used once on a qubit in 0 and once on a qubit on the equator,
+    because one input state cannot show every mistake. With 11 wrong rules planted in
+    `Qasm2ToIsa.h`, one at a time, at least one qubit falls to 54% or less each time
+    **[V]** `experiments/plant_rule_faults.py`, 2026-11-11, against the fake server. `u3`
+    reaches the plugin as `rz`, `rx`, `rz` from a builder kernel, so its two qubits check
+    CUDA-Q's split and the `rx` rule, not `ruleU3`.
 
   Passed 2026-11-10 **[V]** with `cudaq` 0.16.0 and 0.16.0.post1; the script takes about 3
   seconds. Planted faults, same day **[V]**: a wrong `ry` rule, a wrong `z` rule, a `cx`
@@ -331,6 +341,9 @@ Free checks first; only the last one spends QPU time.
   plugin on CUDA-Q 0.16.0 **[V]**: polls 1 to 3 passed, poll 4 got HTTP 401 after 15 s, all
   four with the same token.
 - `tests/run_ibm_hardware.py`: real jobs on `ibm_fez`, only with Bruno's go (§9.8).
+- `tests/run_ibm_hardware_gates.py`: the gate-rule kernel as one real job, only with
+  Bruno's go; `--fake` rehearses the same script against the fake server for free. Not
+  run on hardware yet.
 - Every `set_target("ibm")` in a test must pass the localhost `url` and `iam_url`. A probe
   without them once sent the fake key to IBM's real login (rejected, HTTP 400).
 - Not automated yet: missing env vars throw; `Failed` status throws; HTTP 401 gives a clear error.
