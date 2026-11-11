@@ -4,7 +4,8 @@ The C++ part of this project: a CUDA-Q backend plugin that runs kernels on IBM Q
 It started as a copy of CUDA-Q's `mock_rest` example plugin (see `../NOTICE`).
 
 Status: M1 done (IBM login, submit, poll, results), M2 done (gate rewrite, first `ibm_fez` run). M3 done on
-hardware (routing; GHZ-5 on `ibm_fez`, 2026-11-10; [../docs/roadmap.md](../docs/roadmap.md)).
+hardware (routing; GHZ-5 on `ibm_fez`, 2026-11-10). M4 done (results checked in CI, the wheel, first release
+`v0.1.0rc1` and a hardware run from it, 2026-11-11; [../docs/roadmap.md](../docs/roadmap.md)).
 How it works: [../docs/architecture.md](../docs/architecture.md).
 
 ## Files

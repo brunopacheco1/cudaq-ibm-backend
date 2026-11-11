@@ -288,7 +288,7 @@ public:
     // This is the first of our code CUDA-Q calls when a kernel is launched,
     // before it compiles the kernel. cudaq.observe is refused here: CUDA-Q
     // would otherwise fail later in its own compiler with an error about
-    // "qalloc", or crash Python (docs/m4-spec.md F6 and D7).
+    // "qalloc", or crash Python (docs/decisions/0019).
     if (const auto *context = cudaq::getExecutionContext();
         context != nullptr && context->name == "observe")
       throw std::runtime_error(
@@ -338,7 +338,7 @@ public:
   // §4 initialize. Called on set_target and again inside future::get().
   void initialize(BackendConfig config) override {
     CUDAQ_INFO("Initializing IBM backend.");
-    // emulate=True is refused (docs/m4-spec.md D6). In emulation CUDA-Q
+    // emulate=True is refused (docs/decisions/0018). In emulation CUDA-Q
     // simulates its own compiled kernel and never calls the gate rewrite,
     // the qubit assignment or the result decoding of this plugin, and with
     // this target's router the bit order of the result can be wrong (F5).

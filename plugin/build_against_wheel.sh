@@ -22,7 +22,7 @@
 #
 # Linux only for now. The library works on systems with a C library at
 # least as new as the build machine's; release wheels need an older build
-# image (docs/m4-spec.md, F2).
+# image (docs/development.md §7).
 
 set -euo pipefail
 

@@ -150,7 +150,7 @@ else:
     raise AssertionError("a job was sent although /properties failed")
 
 # M4: cudaq.observe is refused with a clear sentence, before CUDA-Q compiles
-# the kernel (docs/m4-spec.md D7). Without that, this 5-qubit star crashed
+# the kernel (docs/decisions/0019). Without that, this 5-qubit star crashed
 # Python inside CUDA-Q (F6). No job is sent, and sample still works after.
 cudaq.set_target("ibm",
                  backend="ibm_fixed_samples",
@@ -172,7 +172,7 @@ counts = cudaq.sample(kernel, shots_count=3)
 assert counts["10000"] == 2 and counts["01000"] == 1, counts
 print("OK: cudaq.observe is refused with a clear error; sample still works.")
 
-# M4: emulate=True is refused when the target is set (docs/m4-spec.md D6),
+# M4: emulate=True is refused when the target is set (docs/decisions/0018),
 # before the plugin reads credentials or talks to any server.
 # The url arguments matter all the same: without them a plugin that did not
 # refuse would log in to the real IBM service (it did, with the fake key, on

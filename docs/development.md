@@ -196,8 +196,8 @@ If `podman ps` doesn't list `cudaq-ibm`, the container has stopped. Run
 The pip `cudaq` package has the CUDA-Q libraries but no C++ headers. The script
 `plugin/build_against_wheel.sh` takes the headers from the CUDA-Q git commit the installed
 wheel was built from (the wheel reports it in `cudaq.__version__`) and links against the
-wheel's `libcudaq-common.so` and `libcudaq-logger.so`. It is one `g++` call. How this was
-found and what is not tested: [m4-spec.md](m4-spec.md) F1 and F2.
+wheel's `libcudaq-common.so` and `libcudaq-logger.so`. It is one `g++` call. Why the plugin
+is built this way: [decision 0013](decisions/0013-build-against-the-pip-wheel.md).
 
 Needs Linux (x86_64 is tested), `g++` with C++20, `git`, and Python 3.11 to 3.14. From the
 repository root:
@@ -247,8 +247,9 @@ run if a local build and an installed wheel could mix (`tests/plugin_under_test.
 | `linux_x86_64` | This machine only. What you get when you build outside the old image |
 
 A library asks the system's C library (glibc) for functions by version. Built on Ubuntu
-24.04 it asks for glibc 2.38 and does not load on anything older **[V]** m4-spec F2. So
-release wheels are built inside `quay.io/pypa/manylinux_2_28`, the image the Python
+24.04 it asks for glibc 2.38 and does not load on anything older **[V]** `objdump -T` on
+that build, 2026-11-10; pip `cudaq` itself was built with GCC 12.2.1 for glibc 2.28 **[V]**
+`readelf` on its libraries. So release wheels are built inside `quay.io/pypa/manylinux_2_28`, the image the Python
 community keeps for this: an old Linux (glibc 2.28) with a current compiler.
 `plugin/packaging/wheel_platform.py` reads what the built library asks for and gives it
 the tag `manylinux_2_28` only if that is true; the release build fails otherwise.
@@ -262,9 +263,13 @@ on version tags:
 | `test` (2 machines x 2 systems) | `test_wheel.sh` with that wheel: on the oldest system it claims (the manylinux image, Python 3.11, `cudaq` 0.16.0) and on a current one (Ubuntu 24.04, Python 3.14, `cudaq` 0.16.0.post1) |
 | `release` (tags only) | Checks that the tag is `v` + the version in the wheels, then creates a GitHub Release with the two wheels |
 
-First green run, 2026-11-11 **[V]** [run 43100474789](https://github.com/brunopacheco1/cudaq-ibm-backend/actions/runs/43100474789): the image has GCC 14.2.1 and glibc
-2.28, both wheels got the tag `manylinux_2_28`, and all four `test` jobs passed. The
-`release` job has not run yet **[U]**: it runs only for a tag.
+First green run, 2026-11-11 **[V]**
+[run 43100474789](https://github.com/brunopacheco1/cudaq-ibm-backend/actions/runs/43100474789):
+the image has GCC 14.2.1 and glibc 2.28, both wheels got the tag `manylinux_2_28`, and all
+four `test` jobs passed. First release, the same day **[V]**
+[run 43106367874](https://github.com/brunopacheco1/cudaq-ibm-backend/actions/runs/43106367874):
+the tag `v0.1.0rc1` built and tested both wheels again and the `release` job created the
+pre-release [v0.1.0rc1](https://github.com/brunopacheco1/cudaq-ibm-backend/releases/tag/v0.1.0rc1).
 
 **To make a release** (Bruno):
 
@@ -274,7 +279,29 @@ First green run, 2026-11-11 **[V]** [run 43100474789](https://github.com/brunopa
    a pre-release.
 
 A release cannot be taken back cleanly once someone has downloaded it: make a new version
-instead of replacing files.
+instead of replacing files. The same holds for a tag: if the release job fails, fix it and
+tag the next version; do not move the tag.
 
-Not covered: macOS (open item, m4-spec D2); `nvq++` itself (pip `cudaq` has no `nvq++`, so
-only the link is checked) **[U]**; PyPI (m4-spec D3: the name must be settled first).
+**To try a release as a stranger would**, in a plain Python container (Podman or Docker;
+on an Apple Silicon Mac this is Linux aarch64). Run it from your clone: `-v "$PWD"` gives
+the container the folder you are in, and from your home folder that would be all your
+files.
+
+```bash
+cd cudaq-ibm-backend
+podman run -d --name cudaq-ibm-rc -v "$PWD":/repo:ro docker.io/library/python:3.12-slim sleep infinity
+podman exec cudaq-ibm-rc bash -c 'pip install -q cudaq "https://github.com/brunopacheco1/cudaq-ibm-backend/releases/download/v0.1.0rc1/cudaq_ibm-0.1.0rc1-py3-none-manylinux_2_28_$(uname -m).whl"'
+podman exec cudaq-ibm-rc python -W ignore -c 'import cudaq; print(cudaq.has_target("ibm"))'       # True
+podman exec -w /tmp cudaq-ibm-rc python -W ignore /repo/examples/expectation_from_samples.py      # simulator, free
+# Real hardware, three jobs: this spends QPU time. The credentials come from .env.
+podman exec -w /tmp cudaq-ibm-rc bash -c 'set -a; . /repo/.env; set +a; python -W ignore /repo/examples/expectation_from_samples.py --target ibm --yes-spend-qpu-time'
+podman rm -f cudaq-ibm-rc
+```
+
+This passed on 2026-11-11 with `v0.1.0rc1` **[V]**; the hardware result is in
+[architecture.md](architecture.md) §9.8.
+
+Not covered: macOS (open item, [decision 0014](decisions/0014-first-release-for-linux-x86-64-and-aarch64.md));
+`nvq++` itself (pip `cudaq` has no `nvq++`, so only the link is checked) **[U]**; PyPI
+([decision 0015](decisions/0015-github-release-first-settle-the-name-before-pypi.md): the
+name must be settled first).

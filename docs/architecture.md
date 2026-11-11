@@ -382,19 +382,20 @@ How to run them: [development.md](development.md) §4.
    chip qubit and one readout. Six kernels in `tests/run_fake_ibm_results.py` check it
    **[V]** 2026-11-10. GHZ-20 is still sent with 28 `cz`.
 7. **`emulate=True` and `cudaq.observe` are refused with a clear error** (M4, Bruno's
-   decisions D6 and D7 in [m4-spec.md](m4-spec.md)).
+   decisions [0018](decisions/0018-refuse-emulate.md) and
+   [0019](decisions/0019-no-observe-in-the-first-release.md)).
    - `emulate=True`: `initialize` throws when the target is set, before it reads
      credentials or talks to a server. Why not supported: in emulation CUDA-Q simulates its
      own compiled kernel and calls none of this plugin's gate rewrite, qubit choice or
      result decoding; and with this target's router the emulated bit order was wrong in a
-     test **[V]** m4-spec F5. Before M4 it failed inside CUDA-Q with "Multiple qalloc
+     test **[V]** decision 0018. Before M4 it failed inside CUDA-Q with "Multiple qalloc
      statements found" (`combine-measurements` runs late in emulation **[V]**
      `Compiler.cpp:307-319`), after logging in to IBM.
    - `cudaq.observe`: `getPipelineSubstitutions` throws. It is the first plugin code CUDA-Q
      calls for a launch, before it compiles the kernel, and `cudaq::getExecutionContext()`
      (`common/ExecutionContext.h`, exported by `libcudaq-common.so`) tells it the call is
      an `observe` **[V]** built plugin, 2026-11-10: a 2-qubit kernel, a kernel with an idle
-     qubit and the 5-qubit star that used to crash Python (m4-spec F6) all get the error,
+     qubit and the 5-qubit star that used to crash Python (decision 0019) all get the error,
      no job is sent, and `sample` works afterwards. Expectation values can be computed
      from `sample` counts: `examples/expectation_from_samples.py` shows how (`h` before
      `mz` for X, `sdg` then `h` for Y, then the average of the parity) **[V]** 2026-11-11:
@@ -596,3 +597,26 @@ What we learned:
   are expected from qubit 112's own readout. Together about 10%. A test that would settle
   it: measure 113 alone with and without an `x`, and compare with a kernel that resets it
   first.
+
+**Run 3, 2026-11-11, from the released wheel.** The first run that did not use a local
+build: wheel `cudaq-ibm` 0.1.0rc1 (aarch64) from the GitHub Release, next to pip `cudaq`
+0.16.0.post1 in a plain `python:3.12-slim` container, started by Bruno
+([development.md](development.md) §7). `examples/expectation_from_samples.py --target ibm`
+sent three jobs of 1000 shots, one Bell pair per measurement basis; pass mark set before
+the run: signs +, +, - and fidelity of at least 0.85 **[V]**.
+
+| Term | Counts | Value |
+|---|---|---|
+| `<ZZ>` | `00`:494 `11`:485 `01`:14 `10`:7 | +0.958 ± 0.009 |
+| `<XX>` | `00`:503 `11`:464 `01`:17 `10`:16 | +0.934 ± 0.011 |
+| `<YY>` | `01`:505 `10`:465 `00`:18 `11`:12 | -0.940 ± 0.011 |
+| Fidelity with the ideal Bell pair, (1 + ZZ + XX - YY) / 4 | | **0.958 ± 0.005** |
+
+What it shows: the installed wheel logs in over TLS with the certificate file that pip
+`cudaq` ships (§2.3), and the basis changes of the example (`h` for X, `sdg` then `h` for
+Y) are right on a chip; two qubits without entanglement cannot pass 0.5. Limits: one run,
+one 2-qubit kernel; the ± is shot noise only, and readout errors are inside the numbers.
+Which qubits the pair ran on was not logged. Cost **[V]** IBM dashboard after the run
+(Bruno): the nine jobs this project has sent since 2026-11-05 (1 + 1 + 4 + these 3) used
+0.29 of the 10.00 "RUs" of the Open plan's cycle together; what one RU is, the screen does
+not say **[U]**.
