@@ -1,6 +1,6 @@
 # Architecture: how the C++ plugin works today
 
-Date: 2026-11-10. Status: living document. Update it in the same PR as the code it describes.
+Date: 2026-11-11. Status: living document. Update it in the same PR as the code it describes.
 Reader: anyone working on the plugin.
 Tags: **[V]** verified (source given), **[U]** unverified.
 CUDA-Q file references like `runtime/common/Future.cpp` are in the `0.16.0` tag.
@@ -353,9 +353,13 @@ How to run them: [development.md](development.md) §4.
    what it checked (the target loads and a kernel runs), for a local build and for the
    installed wheel.
 4. **Plugin vs pip `cudaq` ABI**: a plugin built against the pip wheel loads into pip
-   `cudaq` 0.16.0 and 0.16.0.post1 on Linux x86_64 and passes the fake-server cases **[V]**
-   CI job `plugin`. Whether a plugin built in the dev container loads into pip `cudaq`,
-   and aarch64 and macOS: **[U]**.
+   `cudaq` 0.16.0 and 0.16.0.post1 and passes the fake-server cases, on Linux x86_64 and
+   aarch64 **[V]** CI job `plugin` (x86_64) and workflow `wheels` (both), 2026-11-11. The
+   release wheel is built once, against `cudaq` 0.16.0 with GCC 14.2.1 (the `manylinux_2_28`
+   image), while the `cudaq` wheel itself was built with GCC 12.2.1; it still passes with
+   both `cudaq` releases, on glibc 2.28 with Python 3.11 and on Ubuntu 24.04 with Python
+   3.14. Whether a plugin built in the dev container loads into pip `cudaq`, and macOS:
+   **[U]**.
 5. **Large circuits may be refused.** The label search (§9.3) gives up after 10^6 steps
    with a clear error, never a wrong placement. Random connected circuits on `ibm_fez`, 40
    cases per cell, refused cases **[V]** `experiments/m3_search_stress.cpp`:

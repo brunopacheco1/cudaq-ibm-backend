@@ -28,7 +28,10 @@ port=62455
 work="$(mktemp -d)"
 server=""
 cleanup() {
-  [ -n "$server" ] && kill "$server" 2>/dev/null || true
+  # wait: so that bash does not print "Terminated" for the server at the end.
+  if [ -n "$server" ]; then
+    { kill "$server" && wait "$server"; } 2>/dev/null || true
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT

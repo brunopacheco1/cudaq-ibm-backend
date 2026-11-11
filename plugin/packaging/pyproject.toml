@@ -24,8 +24,11 @@ Repository = "https://github.com/brunopacheco1/cudaq-ibm-backend"
 [project.entry-points."cudaq.backends"]
 ibm = "cudaq_ibm_plugin:register"
 
+# lib/ and targets/ hold no Python code. setuptools still wants every folder
+# inside a package named here, or it warns that the folder "would be ignored".
 [tool.setuptools]
-packages = ["cudaq_ibm_plugin"]
+packages = ["cudaq_ibm_plugin", "cudaq_ibm_plugin.lib", "cudaq_ibm_plugin.targets"]
 
 [tool.setuptools.package-data]
-cudaq_ibm_plugin = ["targets/*.yml", "lib/*.so"]
+"cudaq_ibm_plugin.lib" = ["*.so"]
+"cudaq_ibm_plugin.targets" = ["*.yml"]

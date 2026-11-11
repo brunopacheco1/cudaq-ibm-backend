@@ -1,6 +1,6 @@
 # Development: build and test the C++ plugin
 
-Date: 2026-11-10. Status: living document.
+Date: 2026-11-11. Status: living document.
 Reader: anyone building the plugin. Why a container and not a native Mac build:
 [decision 0002](decisions/0002-build-in-linux-dev-container.md).
 
@@ -216,8 +216,8 @@ take about 20 seconds. The CI job `plugin` runs exactly these steps for every `c
 release the plugin supports.
 
 Limits: the library runs on systems whose C library is at least as new as the build
-machine's, so a file built on Ubuntu 24.04 is not a release build. aarch64 and macOS are
-not tested **[U]**.
+machine's, so a file built on Ubuntu 24.04 is not a release build. On aarch64 the script
+runs in the workflow of §7 **[V]**; macOS is not tested **[U]**.
 
 ## 7. The wheel and a release
 
@@ -261,6 +261,10 @@ on version tags:
 | `build` (x86_64, aarch64) | `build_wheel.sh` inside the manylinux image, against `cudaq` 0.16.0, the oldest release the wheel supports |
 | `test` (2 machines x 2 systems) | `test_wheel.sh` with that wheel: on the oldest system it claims (the manylinux image, Python 3.11, `cudaq` 0.16.0) and on a current one (Ubuntu 24.04, Python 3.14, `cudaq` 0.16.0.post1) |
 | `release` (tags only) | Checks that the tag is `v` + the version in the wheels, then creates a GitHub Release with the two wheels |
+
+First green run, 2026-11-11 **[V]** [run 43100474789](https://github.com/brunopacheco1/cudaq-ibm-backend/actions/runs/43100474789): the image has GCC 14.2.1 and glibc
+2.28, both wheels got the tag `manylinux_2_28`, and all four `test` jobs passed. The
+`release` job has not run yet **[U]**: it runs only for a tag.
 
 **To make a release** (Bruno):
 
