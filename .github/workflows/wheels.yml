@@ -53,8 +53,10 @@ jobs:
             quay.io/pypa/manylinux_2_28_${{ matrix.arch }} \
             bash -c 'set -euo pipefail
                      git config --global --add safe.directory "*"
-                     g++ --version | head -1
-                     ldd --version | head -1
+                     # sed, not head: head closes the pipe early, and under pipefail
+                     # that ends the script with exit code 141.
+                     g++ --version | sed -n 1p
+                     ldd --version | sed -n 1p
                      $PYTHON -m pip install --quiet "cudaq==$CUDAQ_BUILD_VERSION"
                      plugin/build_wheel.sh dist'
           ls -l dist
