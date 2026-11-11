@@ -213,6 +213,7 @@ Content-Type:  application/json
 | `tests/fake_ibm_server.py`, `tests/test_fake_server.py`, `tests/run_fake_ibm.py` | Fake IBM with the `ibm_fez` wiring, its own tests (CI), and end-to-end runs through the built plugin (§7) | Done (M3) |
 | `tests/isa_simulator.py`, `tests/test_isa_simulator.py` | Statevector simulator for native-gate circuits (`rz`, `sx`, `x`, `cz`, measurements at the end), no noise; the fake server answers jobs with it. The quantum functions are Bruno's. Its tests compare it with Qiskit (CI) | Done (M4) |
 | `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 25 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
+| `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
 | `src/cudaq_ibm/` | Phase 1 Python prototype (uses Qiskit for the ISA step) | Done; reference for the C++ code |
@@ -387,7 +388,11 @@ How to run them: [development.md](development.md) §4.
      an `observe` **[V]** built plugin, 2026-11-10: a 2-qubit kernel, a kernel with an idle
      qubit and the 5-qubit star that used to crash Python (m4-spec F6) all get the error,
      no job is sent, and `sample` works afterwards. Expectation values can be computed
-     from `sample` counts.
+     from `sample` counts: `examples/expectation_from_samples.py` shows how (`h` before
+     `mz` for X, `sdg` then `h` for Y, then the average of the parity) **[V]** 2026-11-11:
+     its 38 tests agree with `cudaq.observe` on `qpp-cpu`, and through the built plugin
+     against the simulating fake server a Bell pair gave `<ZZ>` = +1, `<XX>` = +1,
+     `<YY>` = -1 (run by hand, not in CI).
 8. **The label search takes the first placement that fits, not the cheapest**, and **the
    logged forecast is an upper bound** (§9.8).
 

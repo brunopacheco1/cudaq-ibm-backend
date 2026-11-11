@@ -20,11 +20,12 @@ basis, not in the first.
 The second form sends three jobs to IBM and spends QPU time. It needs
 IBM_QUANTUM_API_KEY and IBM_QUANTUM_CRN in the environment.
 
-The file has two parts. The plumbing (arguments, targets, printing) is done.
-The four functions marked "yours" are Bruno's, in the order the tests in
-tests/test_expectation_example.py check them:
+The file has two parts: the quantum part, four small functions that each
+build on the one before, and the plumbing (arguments, target, report). The
+tests in tests/test_expectation_example.py check the four functions in the
+same order, the last one against `cudaq.observe` on the simulator:
 
-    pytest tests/test_expectation_example.py -k step1
+    pytest tests/test_expectation_example.py
 """
 
 import argparse
@@ -38,7 +39,7 @@ IDEAL = {"zz": 1.0, "xx": 1.0, "yy": -1.0}
 
 
 # --------------------------------------------------------------------------
-# The quantum part: yours, Bruno. Replace each `raise NotImplementedError`.
+# The quantum part: four small steps, from one shot to the measurement.
 # --------------------------------------------------------------------------
 
 
@@ -93,11 +94,13 @@ def measure_in(kernel, qubits, basis: str) -> None:
 
     The chip can only measure along Z (that is `kernel.mz`). To measure
     along another axis, first turn that axis onto Z with gates, then
-    measure. You know which gate turns X into Z from the M2 rules and the
-    Bloch Gate Stepper; Y needs one gate more.
+    measure. The rule: undo, in reverse order, the gates that prepare the
+    "+1" state of that axis from |0>.
 
-    Gates are added with `kernel.h(qubits[k])`, `kernel.sdg(qubits[k])`,
-    `kernel.s(qubits[k])` and so on; finish with `kernel.mz(qubits)`.
+    - X: prepared with `h`, so undone with `h`.
+    - Y: prepared with `h` then `s`, so undone with `sdg` then `h`. With `s`
+      in place of `sdg` every Y value flips its sign: "yy" hides that (two
+      flips cancel), the tests with a single y ("yz", "xy") show it.
     """
     if basis not in {"xx", "yy", "zz", "xy", "xz", "yx", "yz", "zx", "zy"}:
         raise ValueError(f"unknown basis: {basis}")
@@ -113,7 +116,7 @@ def measure_in(kernel, qubits, basis: str) -> None:
 
 
 # --------------------------------------------------------------------------
-# Plumbing: the Bell pair, the target and the report. Done.
+# Plumbing: the Bell pair, the target and the report.
 # --------------------------------------------------------------------------
 
 
