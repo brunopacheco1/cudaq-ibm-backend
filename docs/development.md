@@ -177,7 +177,8 @@ CUDAQ_LOG_LEVEL=info python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware.py \
 The gate rules on real hardware: one job, ten qubits, one certain answer
 ([architecture.md](architecture.md) §7). Rehearse it for free first, then set the mark and
 run it. Every qubit must give its expected bit in at least that share of the shots; a wrong
-rule leaves a qubit at about half, readout noise costs a few percent:
+rule leaves a qubit at about half, readout noise costs a few percent (2026-11-11 on
+`ibm_fez`, mark 0.85: the lowest qubit was at 97.5%):
 
 ```bash
 python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware_gates.py --qubit-mark 0.90 --fake
