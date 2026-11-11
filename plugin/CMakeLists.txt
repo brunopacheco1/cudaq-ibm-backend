@@ -9,28 +9,18 @@
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
 
+# Builds the plugin inside a CUDA-Q source build, as an external project
+# (docs/development.md, section 4). It writes lib/ and targets/ into
+# build/external/ibm, the folder cudaq.register_backend_path() takes.
+# The wheel is not built here: plugin/build_wheel.sh builds it against the
+# pip-installed cudaq.
+
 set(plugin_root ${CMAKE_CURRENT_BINARY_DIR})
 set(plugin_lib_dir ${plugin_root}/lib)
 set(plugin_target_dir ${plugin_root}/targets)
-set(plugin_python_package cudaq_example_ibm)
-set(plugin_python_project cudaq-example-ibm)
-set(plugin_python_entry_point ibm)
-set(plugin_python_description
-    "CUDA-Q reference REST-style external QPU plugin.")
-set(plugin_python_install_name ibm)
-
 file(MAKE_DIRECTORY ${plugin_lib_dir} ${plugin_target_dir})
 configure_file(targets/ibm.yml.in
                ${plugin_target_dir}/ibm.yml
-               @ONLY)
-configure_file(pyproject.toml.in
-               ${plugin_root}/pyproject.toml
-               @ONLY)
-configure_file(python/__init__.py.in
-               ${plugin_root}/__init__.py
-               @ONLY)
-configure_file(python/__main__.py.in
-               ${plugin_root}/__main__.py
                @ONLY)
 
 add_library(cudaq-example-serverhelper-ibm EXCLUDE_FROM_ALL SHARED
@@ -45,35 +35,3 @@ target_include_directories(cudaq-example-serverhelper-ibm
   PRIVATE ${PROJECT_SOURCE_DIR}/runtime)
 target_link_libraries(cudaq-example-serverhelper-ibm
   PRIVATE cudaq-common cudaq-logger CURL::libcurl)
-
-if(NOT PYTHON_EXECUTABLE AND Python3_EXECUTABLE)
-  set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
-endif()
-
-if(LLVM_EXTERNAL_LIT)
-  set(cudaq_ibm_lit ${LLVM_EXTERNAL_LIT})
-else()
-  set(cudaq_ibm_lit ${LLVM_TOOLS_BINARY_DIR}/llvm-lit)
-endif()
-
-set(CUDAQ_PLUGIN_TEST_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/tests/lit.site.cfg.py.in
-               ${CMAKE_CURRENT_BINARY_DIR}/tests/lit.site.cfg.py
-               @ONLY)
-
-set(cudaq_ibm_check_depends cudaq-example-serverhelper-ibm)
-foreach(dep nvq++ cudaq-install-plugin FileCheck CopyPythonFiles
-            CUDAQuantumPythonModules)
-  if(TARGET ${dep})
-    list(APPEND cudaq_ibm_check_depends ${dep})
-  endif()
-endforeach()
-
-add_custom_target(check-ibm
-  COMMAND ${CMAKE_COMMAND} -E env
-          "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib:$ENV{LD_LIBRARY_PATH}"
-          "DYLD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib:$ENV{DYLD_LIBRARY_PATH}"
-          ${cudaq_ibm_lit} ${LLVM_LIT_ARGS}
-          ${CMAKE_CURRENT_BINARY_DIR}/tests
-  DEPENDS ${cudaq_ibm_check_depends}
-  USES_TERMINAL)

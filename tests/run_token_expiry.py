@@ -89,7 +89,8 @@ def main() -> None:
     try:
         import cudaq
 
-        cudaq.register_backend_path("build/external/ibm")
+        import plugin_under_test
+        plugin_under_test.register(cudaq)
         # Always the localhost urls: without them the plugin talks to IBM.
         cudaq.set_target("ibm",
                          backend="ibm_fake",

@@ -67,7 +67,8 @@ def main() -> int:
 
     import cudaq
 
-    cudaq.register_backend_path("build/external/ibm")
+    import plugin_under_test
+    plugin_under_test.register(cudaq)
     cudaq.set_target("ibm", backend=args.backend)
 
     ghz = cudaq.make_kernel()
