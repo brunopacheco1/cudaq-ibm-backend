@@ -10,8 +10,10 @@ quantum ideas behind each step.
 > **Status.** Early and unofficial: a learning project, not affiliated with IBM or
 > NVIDIA. The C++ plugin runs `cudaq.sample` on IBM hardware: on `ibm_fez` a Bell pair
 > gave 94% of 1000 shots correlated (2026-11-09) and a 5-qubit GHZ state 90% of 1000
-> shots in `00000` or `11111` (2026-11-10). It is packaged as a wheel for Linux. Not
-> supported yet: `cudaq.observe`, `emulate=True`, macOS. Expect breaking changes.
+> shots in `00000` or `11111` (2026-11-10). It is packaged as a wheel for Linux; the first
+> release is the pre-release `v0.1.0rc1`, and with that wheel a Bell pair on `ibm_fez`
+> reached a fidelity of 0.958 (2026-11-11). Not supported yet: `cudaq.observe`,
+> `emulate=True`, macOS. Expect breaking changes.
 > Milestones and risks: [docs/roadmap.md](docs/roadmap.md).
 
 ## Install
@@ -21,7 +23,7 @@ as pip `cudaq` 0.16. On a Mac, use a Linux container.
 
 Wheels are attached to the
 [releases](https://github.com/brunopacheco1/cudaq-ibm-backend/releases) of this
-repository. Replace `<version>` with the release you want:
+repository. Replace `<version>` with the release you want (the first one is `0.1.0rc1`):
 
 ```bash
 pip install cudaq
@@ -169,7 +171,7 @@ compares the plugin's results with CUDA-Q's own simulator. All commands:
 ## Roadmap
 
 1. **Python prototype** (done). The go/no-go point was one successful real-QPU run.
-2. **C++ plugin** (in progress). It uses CUDA-Q 0.16's [backend plugin
+2. **C++ plugin** (M0 to M4 done, first pre-release out). It uses CUDA-Q 0.16's [backend plugin
    framework](https://nvidia.github.io/cuda-quantum/0.16.0/using/extending/backend.html):
    a `ServerHelper` subclass and a `targets/ibm.yml` file, installed with pip, so that
    `cudaq.set_target("ibm")` works like any other provider. The milestones (M0-M5) and

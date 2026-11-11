@@ -39,7 +39,7 @@ config:
   # No `dqe` (iqm.yml has it after factor-quantum-alloc): that pass removes
   # a qubit no gate touches, and the result then has one bit too few. Here
   # every allocated qubit keeps its place and is measured
-  # (docs/m4-spec.md D5; tests/run_fake_ibm_results.py has idle-qubit cases).
+  # (docs/decisions/0017; tests/run_fake_ibm_results.py has idle-qubit cases).
   jit-high-level-pipeline: "expand-measurements"
   jit-mid-level-pipeline: "func.func(erase-implicit-output),decomposition{basis=h,rx,ry,rz,x,z,x(1)},func.func(add-dealloc,combine-quantum-alloc,canonicalize,combine-measurements),expand-measurements,func.func(cc-loop-unroll,canonicalize,factor-quantum-alloc,cse,memtoreg),add-wireset,func.func(assign-wire-indices),qubit-mapping{device=file(%QPU_ARCH%) placement=auto search=sabre},func.func(delay-measurements),decomposition{basis=h,rx,ry,rz,x,z,x(1)},lower-to-cfg,func.func(regtomem),quake-to-cc-prep,func.func(memtoreg{quantum=0})"
   codegen-emission: qasm2

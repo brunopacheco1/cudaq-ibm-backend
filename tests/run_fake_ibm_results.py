@@ -2,7 +2,7 @@
 # Licensed under the Apache License 2.0.
 
 """Check the RESULTS the C++ 'ibm' plugin returns, not only that IBM would
-accept its circuits (docs/m4-spec.md, step 2).
+accept its circuits (docs/decisions/0016).
 
 Every kernel below runs twice:
 
@@ -170,8 +170,7 @@ DISTRIBUTION_CASES = [
 GHZ_SIZES = (3, 8, 16)
 # Qubits no gate touches. With the `dqe` pass in the pipeline (until M4
 # step 3) CUDA-Q removed such a qubit and the answer had one bit too few:
-# the first kernel below returned 111 instead of 1011 (docs/m4-spec.md F4,
-# decision D5).
+# the first kernel below returned 111 instead of 1011 (docs/decisions/0017).
 IDLE_CASES = [
     ("idle q1 (4 qubits, no mz)", 4,
      [("x", 0), ("cx", 0, 2), ("x", 3)], "none"),

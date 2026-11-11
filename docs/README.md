@@ -62,3 +62,10 @@ one "superseded by NNNN".
 | [0010](decisions/0010-measure-all-then-keep-measured-bits.md) | Measure every qubit in allocation order, then keep the measured bits | 2026-11-10 |
 | [0011](decisions/0011-stop-when-properties-cannot-be-read.md) | Stop when `/properties` cannot be read (fail closed) | 2026-11-10 |
 | [0012](decisions/0012-root-by-best-region-best-first-numbering.md) | Root by its best 10-qubit region, best-first numbering | 2026-11-10 |
+| [0013](decisions/0013-build-against-the-pip-wheel.md) | Build the plugin against the pip wheel for CI and releases | 2026-11-10 |
+| [0014](decisions/0014-first-release-for-linux-x86-64-and-aarch64.md) | The first release covers Linux x86_64 and aarch64 | 2026-11-10 |
+| [0015](decisions/0015-github-release-first-settle-the-name-before-pypi.md) | Wheels on a GitHub Release first; settle the name before PyPI | 2026-11-10 |
+| [0016](decisions/0016-own-simulator-in-the-fake-server.md) | The fake IBM server simulates circuits with our own small simulator | 2026-11-10 |
+| [0017](decisions/0017-keep-idle-qubits-remove-dqe.md) | Keep idle qubits: remove `dqe` from the pipeline | 2026-11-10 |
+| [0018](decisions/0018-refuse-emulate.md) | Refuse `emulate=True` with a clear error | 2026-11-10 |
+| [0019](decisions/0019-no-observe-in-the-first-release.md) | No `cudaq.observe` in the first release; expectation values from `sample` | 2026-11-10 |

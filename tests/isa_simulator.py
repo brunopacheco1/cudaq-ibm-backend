@@ -5,7 +5,7 @@
 
 The fake IBM server (tests/fake_ibm_server.py) uses it to answer a job with
 real samples, so the tests can check results and not only that the gates are
-allowed (docs/m4-spec.md, decision D4).
+allowed (docs/decisions/0016).
 
 It only knows what an IBM Heron chip knows: the gates rz, sx, x and cz, and
 measurements at the end. No noise.

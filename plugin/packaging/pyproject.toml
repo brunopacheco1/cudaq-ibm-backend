@@ -7,7 +7,7 @@ requires = ["setuptools>=77"]   # 77: the `license` and `license-files` keys
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cudaq-ibm"              # working name, to settle before PyPI (docs/m4-spec.md, D3)
+name = "cudaq-ibm"              # working name, to settle before PyPI (docs/decisions/0015)
 version = "0.1.0rc1"            # the release tag must be "v" + this
 description = "Run CUDA-Q kernels on IBM Quantum hardware: cudaq.set_target(\"ibm\"). Unofficial, not affiliated with IBM or NVIDIA."
 readme = "README.md"
