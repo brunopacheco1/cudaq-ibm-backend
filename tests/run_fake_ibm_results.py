@@ -22,6 +22,9 @@ Three kinds of kernels:
   third opinion. Measured in full, in part and out of order, and not at all.
   Some have qubits that no gate touches: each must still give its bit.
 - GHZ states: only 00...0 and 11...1 may come out, about half each.
+- the gate-rule kernel of tests/gate_rule_kernel.py: ten qubits of rx, ry, z,
+  y and u3 with one certain answer. The same kernel runs on real hardware
+  (tests/run_ibm_hardware_gates.py).
 - kernels with rotations: the two outcome distributions must be close.
 
 Run from the repository root, after plugin/build_against_wheel.sh:
@@ -40,6 +43,7 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import gate_rule_kernel  # noqa: E402
 import plugin_under_test  # noqa: E402
 from run_token_expiry import start_server, stop_server  # noqa: E402
 
@@ -207,7 +211,9 @@ def main() -> int:
 
     exact = exact_cases() + IDLE_CASES
     ghz_cases = [(f"GHZ-{n}", n, ghz(n), None) for n in GHZ_SIZES]
-    everything = exact + ghz_cases + DISTRIBUTION_CASES
+    certain = [("gate rules, one certain answer (10 qubits)",
+                len(gate_rule_kernel.CASES), gate_rule_kernel.ops(), None)]
+    everything = exact + certain + ghz_cases + DISTRIBUTION_CASES
     kernels = {name: build(cudaq, n, ops, measure)
                for name, n, ops, measure in everything}
 
@@ -215,7 +221,7 @@ def main() -> int:
     cudaq.set_target("qpp-cpu")
     cudaq.set_random_seed(SEED)
     reference = {}
-    for name, *_ in exact:
+    for name, *_ in exact + certain:
         reference[name] = as_dict(cudaq.sample(kernels[name],
                                                shots_count=SHOTS_EXACT))
     for name, *_ in ghz_cases + DISTRIBUTION_CASES:
@@ -246,6 +252,14 @@ def main() -> int:
             check(name, ok, f"{want} in every shot" if ok else
                   f"bit logic says {want}, CUDA-Q's simulator "
                   f"{reference[name]}, the plugin {got}")
+
+        name = "gate rules, one certain answer (10 qubits)"
+        want = gate_rule_kernel.EXPECTED
+        got = as_dict(cudaq.sample(kernels[name], shots_count=SHOTS_EXACT))
+        ok = got == {want: SHOTS_EXACT} == reference[name]
+        check(name, ok, f"{want} in every shot" if ok else
+              f"expected {want}, CUDA-Q's simulator {reference[name]}, "
+              f"the plugin {got}")
 
         for name, n, _, _ in ghz_cases:
             got = as_dict(cudaq.sample(kernels[name], shots_count=SHOTS))

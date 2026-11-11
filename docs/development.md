@@ -124,7 +124,7 @@ It runs eight cases and prints one `OK` line for each: a Bell pair; a kernel wit
 `cudaq.observe` and `emulate=True`, which must be refused with a clear error
 ([architecture.md](architecture.md) §8 item 7).
 These eight check the protocol with fixed samples. The results themselves are checked by a
-second script, which starts its own fake server and compares 25 kernels with CUDA-Q's
+second script, which starts its own fake server and compares 26 kernels with CUDA-Q's
 simulator ([architecture.md](architecture.md) §7):
 
 ```bash
@@ -174,6 +174,26 @@ CUDAQ_LOG_LEVEL=info python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware.py \
   --ghz-mark 0.88 --order-mark 0.95 --yes-spend-qpu-time
 ```
 
+The gate rules on real hardware: one job, ten qubits, one certain answer
+([architecture.md](architecture.md) §7). Rehearse it for free first, then set the mark and
+run it. Every qubit must give its expected bit in at least that share of the shots; a wrong
+rule leaves a qubit at about half, readout noise costs a few percent (2026-11-11 on
+`ibm_fez`, mark 0.85: the lowest qubit was at 97.5%):
+
+```bash
+python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware_gates.py --qubit-mark 0.90 --fake
+python3 /src/cudaq-ibm-backend/tests/run_ibm_hardware_gates.py --qubit-mark 0.90 --yes-spend-qpu-time
+```
+
+With the installed wheel in the plain container of §7 (the script reads `.env` itself; the
+rehearsal needs the fake server's packages):
+
+```bash
+podman exec cudaq-ibm-rc pip install -q fastapi uvicorn python-multipart
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_gates.py --qubit-mark 0.90 --fake
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_gates.py --qubit-mark 0.90 --yes-spend-qpu-time
+```
+
 ## 5. Optional: VS Code inside the container
 
 1. Install the **Dev Containers** extension on the Mac. Point it at Podman
@@ -208,7 +228,7 @@ pip install cudaq==0.16.0 fastapi uvicorn python-multipart
 plugin/build_against_wheel.sh              # writes build/external/ibm
 python3 tests/fake_ibm_server.py 62455 &   # the fake IBM server
 python3 tests/run_fake_ibm.py              # eight OK lines, as in §4
-python3 tests/run_fake_ibm_results.py      # 25 OK lines: results against CUDA-Q's simulator
+python3 tests/run_fake_ibm_results.py      # 26 OK lines: results against CUDA-Q's simulator
 ```
 
 The first build downloads the headers (about 50 MB, kept in `build/cache`); later builds
@@ -232,7 +252,7 @@ plugin/test_wheel.sh dist/*.whl 0.16.0     # fresh environment: install, then th
 ```
 
 `test_wheel.sh` makes four checks: `cudaq.has_target("ibm")` right after `pip install`,
-the eight protocol cases, the 25 result kernels, and
+the eight protocol cases, the 26 result kernels, and
 `python -m cudaq_ibm_plugin --install-nvqpp` (it links the package into
 `~/.local/share/cudaq/plugins/ibm`, where the C++ compiler `nvq++` looks). The scripts in
 `tests/` use the installed plugin when `CUDAQ_IBM_PLUGIN=installed` is set, and refuse to
