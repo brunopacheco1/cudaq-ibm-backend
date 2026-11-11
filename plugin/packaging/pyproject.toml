@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cudaq-ibm"              # working name, to settle before PyPI (docs/m4-spec.md, D3)
-version = "0.1.0"               # the release tag must be "v" + this
+version = "0.1.0rc1"            # the release tag must be "v" + this
 description = "Run CUDA-Q kernels on IBM Quantum hardware: cudaq.set_target(\"ibm\"). Unofficial, not affiliated with IBM or NVIDIA."
 readme = "README.md"
 license = "Apache-2.0"
