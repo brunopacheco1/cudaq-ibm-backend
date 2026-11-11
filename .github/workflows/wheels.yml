@@ -20,6 +20,11 @@ on:
 permissions:
   contents: read
 
+# A new commit on a pull request replaces the run of the commit before it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # The wheel is built against the oldest cudaq release it supports and
   # tested against every one (plugin/packaging/pyproject.toml, dependencies).
