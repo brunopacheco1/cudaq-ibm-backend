@@ -1,6 +1,6 @@
 # M4 spec: results checked in CI, idle qubits, emulation, observe, packaging
 
-Date: 2026-11-10. Status: **decisions taken by Bruno on 2026-11-10 (§3); in progress, step 3 of §4.**
+Date: 2026-11-10. Status: **decisions taken by Bruno on 2026-11-10 (§3); in progress, steps 1 to 3 of §4 done, step 4 next.**
 Reader: Bruno.
 Tags: **[V]** verified (source given), **[U]** unverified.
 "Today's runs" means: cloud container, Ubuntu 24.04 x86_64, g++ 13.3, Python 3.13, pip
@@ -189,7 +189,7 @@ Smallest useful step first; each step is one PR.
 |---|---|---|
 | 1 | CI job: build the plugin against the wheel (F1), start the fake server, run the six existing cases. Matrix: `cudaq` 0.16.0 and 0.16.0.post1. **Done 2026-11-10**: `plugin/build_against_wheel.sh`, CI job `plugin`, [development.md](development.md) §6 | Claude |
 | 2 | Simulating fake server: `simulate()` (D4), server plumbing, a backend name that keeps the fixed samples for the bit-order case. Tests compare with CUDA-Q's simulator: random `x`/`cx` kernels (one right answer each), GHZ, the gate-rule kernel (so `rx`, `ry`, `u3`, `s`, `t` are checked for physics end to end, not only accepted), partial and missing `mz`. **Done 2026-11-10**: `tests/isa_simulator.py` (Bruno's eight functions, compared with Qiskit), the server answers with it, `tests/run_fake_ibm_results.py` in CI job `plugin`; what it checks and its limits: [architecture.md](architecture.md) §7 | `simulate()`: Bruno. Rest: Claude |
-| 3 | Pipeline: remove `dqe` (D5), idle-qubit test, clear errors for `emulate=True` and `observe` (D6, D7), the `sample`-based expectation example. **Pipeline and errors done 2026-11-10** ([architecture.md](architecture.md) §8 items 6 and 7); the example is open | Pipeline and errors: Claude. Example: Bruno |
+| 3 | Pipeline: remove `dqe` (D5), idle-qubit test, clear errors for `emulate=True` and `observe` (D6, D7), the `sample`-based expectation example. **Done**: pipeline and errors 2026-11-10 ([architecture.md](architecture.md) §8 items 6 and 7); the example 2026-11-11, `examples/expectation_from_samples.py` (Bruno's four functions, compared with `cudaq.observe` on the simulator) | Pipeline and errors: Claude. Example: Bruno |
 | 4 | Packaging: rename `cudaq_example_ibm`, wheels for Linux x86_64 and aarch64 built in a `manylinux_2_28` image (D2), release workflow to a GitHub Release (D3), trademark attribution in the README, `--install-nvqpp` check, README install section. Remove the inherited lit test `check-ibm`: it needs a source build, and steps 1 and 4 cover what it checked | Claude |
 | 5 | You: one kernel on `ibm_fez` from the installed wheel. Then close M4: facts to `architecture.md`, choices to `decisions/`, delete this spec | Bruno, then Claude |
 
