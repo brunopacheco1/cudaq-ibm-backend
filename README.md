@@ -13,7 +13,8 @@ quantum ideas behind each step.
 > shots in `00000` or `11111` (2026-11-10). It is packaged as a wheel for Linux; the first
 > release is the pre-release `v0.1.0rc1`, and with that wheel a Bell pair on `ibm_fez`
 > reached a fidelity of 0.958 (2026-11-11). Not supported yet: `cudaq.observe`,
-> `emulate=True`, macOS. Expect breaking changes.
+> `emulate=True`, macOS. Known bug of `v0.1.0rc1`: a kernel with `mz` on 50 or more
+> qubits does not compile; leave the `mz` out (fixed on `main`). Expect breaking changes.
 > Milestones and risks: [docs/roadmap.md](docs/roadmap.md).
 
 ## Install

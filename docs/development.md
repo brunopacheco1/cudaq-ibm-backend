@@ -194,6 +194,22 @@ podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/te
 podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_gates.py --qubit-mark 0.90 --yes-spend-qpu-time
 ```
 
+The limits on real hardware ([architecture.md](architecture.md) §8 item 9): how wide a GHZ
+chain and how many `cx` in a row survive the noise, and what IBM answers to a NaN angle and
+to 0 shots. About 11 jobs. It measures, there is no pass mark: write down what you expect
+before the run. The script waits 13 s between jobs, because IBM takes 5 jobs per minute.
+The rehearsal also needs `stim`:
+
+```bash
+podman exec cudaq-ibm-rc pip install -q fastapi uvicorn python-multipart stim
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --fake
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --yes-spend-qpu-time
+```
+
+Fewer jobs: `--parts depth`, `--widths 5,20`, `--depths 1,101`. The check of IBM's limit of
+5 jobs per minute is not in the default parts: `--parts rate-limit` sends six one-shot jobs
+without a pause.
+
 ## 5. Optional: VS Code inside the container
 
 1. Install the **Dev Containers** extension on the Mac. Point it at Podman
@@ -236,7 +252,7 @@ take about 20 seconds. The CI job `plugin` runs exactly these steps for every `c
 release the plugin supports.
 
 The limit probes ([architecture.md](architecture.md) §8 item 9) run the same way, by hand,
-not in CI. 210 probes, each in its own process, about 5 minutes on 4 cores:
+not in CI. 215 probes, each in its own process, about 5 minutes on 4 cores:
 
 ```bash
 pip install stim                                        # checks circuits too wide to simulate

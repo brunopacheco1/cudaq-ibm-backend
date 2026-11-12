@@ -217,6 +217,7 @@ Content-Type:  application/json
 | `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 26 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
 | `tests/gate_rule_kernel.py`, `tests/run_ibm_hardware_gates.py` | A 10-qubit kernel of `rx`, `ry`, `z`, `y` and `u3` with one certain answer: a wrong rewrite rule leaves a known qubit at about half or flips it (§7). The script sends it to real hardware (spends QPU time) or, with `--fake`, to the fake server | Done; ran on `ibm_fez` 2026-11-11, all ten qubits pass (§9.8 run 4) |
 | `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
+| `tests/run_ibm_hardware_limits.py` | Limits on real hardware (§8 item 9): GHZ chains of 5 to 80 qubits, 1 to 1001 `cx` in a row, a NaN angle, 0 shots and, when asked, six jobs without a pause. It measures; there is no pass mark. Spends QPU time, or `--fake` for a free rehearsal | Written 2026-11-12; rehearsed, not yet run on hardware |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
 | `experiments/limits/` | The limit probes of §8 item 9: `run.py` (runner), `cases_*.py` (the probes), `probe_server.py` (the fake server plus faults, odd chips and Stim for wide circuits), and the report of the last full run | Run by hand, 2026-11-12 |
@@ -345,7 +346,9 @@ Free checks first; only the last one spends QPU time.
 - `tests/run_ibm_hardware_gates.py`: the gate-rule kernel as one real job, only with
   Bruno's go; `--fake` rehearses the same script against the fake server for free. Ran
   once on `ibm_fez`, 2026-11-11: all ten qubits pass (§9.8 run 4).
-- `experiments/limits/run.py`: 210 probes that look for the edges, not for a pass: what
+- `tests/run_ibm_hardware_limits.py`: width, depth and bad input as real jobs, only with
+  Bruno's go; `--fake` rehearses it for free. Not yet run on hardware.
+- `experiments/limits/run.py`: 215 probes that look for the edges, not for a pass: what
   is wrong, refused, slow, or hangs (§8 item 9). By hand, not in CI: it takes about 5
   minutes on 4 cores and many probes are meant to fail.
 - Every `set_target("ibm")` in a test must pass the localhost `url` and `iam_url`. A probe
@@ -422,15 +425,27 @@ How to run them: [development.md](development.md) §4.
 8. **The label search takes the first placement that fits, not the cheapest**, and **the
    logged forecast is an upper bound** (§9.8).
 9. **What the limit probes found** (2026-11-12). `experiments/limits/run.py` runs
-   210 probes through the plugin against the fake server: every gate and kernel feature,
+   215 probes through the plugin against the fake server: every gate and kernel feature,
    width, depth, the calls around `sample`, a misbehaving server, odd chips, and 340 random
    kernels. Each probe runs in its own process with a time limit; wherever a right answer
    exists it is compared with CUDA-Q's simulator, with Stim, or with the exact value. Every line below is **[V]** by
    [`experiments/limits/report-2026-11-12.md`](../experiments/limits/report-2026-11-12.md)
    (local build, pip `cudaq` 0.16.0) unless tagged otherwise; the probe name is in
    brackets. The released wheel `v0.1.0rc1` with `cudaq` 0.16.0.post1 gives the same
-   outcome for every probe. The fake chip has no noise: this is about what the plugin
+   outcome for every probe but the four of the bug below. The fake chip has no noise: this is about what the plugin
    computes and how it fails, not about what a chip returns.
+
+   **A bug, found and fixed in the same change.** Up to `v0.1.0rc1` a kernel with `mz`
+   on 50 or more qubits did not compile: "Could not successfully translate to qasm2"
+   (in the log: "'quake.concat' op unable to translate"). Our pipeline turns the
+   measurements into one loop over the measured qubits and unrolls it with
+   `cc-loop-unroll`, whose default is 50 rounds **[V]** `Passes.td:385`, tag 0.16.0.
+   The pass now gets `maximum-iterations=1024`, the limit CUDA-Q itself uses for the
+   loops of a kernel; `tests/test_target_yml.py` fails without it
+   [`s_x_pattern_with_mz_050`, `s_ghz_chain_with_mz_080`]. Way around with
+   `v0.1.0rc1`: leave the `mz` out; `sample` then measures every qubit. The first
+   round of probes missed it, because every wide probe was written without `mz`: it
+   showed up when the hardware script, which had one, was rehearsed.
 
    **What holds.**
    - Gates and kernels: all one- and two-qubit gates, controlled rotations, `swap`,
@@ -443,7 +458,7 @@ How to run them: [development.md](development.md) §4.
      `z`, `ry` or `y` rule planted in a copy of `Qasm2ToIsa.h`, 3, 25 and 4 of 100 kernels
      differ (run by hand, 2026-11-12).
    - Width: right answers on every usable qubit of the fake chip (153 of 156), for a
-     pattern of `x`, GHZ as a chain and as a star, and 459 random `x`/`cx` between any two
+     pattern of `x` with and without `mz`, GHZ as a chain and as a star, and 459 random `x`/`cx` between any two
      of 153 qubits (4984 `cz` after routing, about 1.5 s). The wide circuits are checked with
      Stim, an independent stabilizer simulator. One qubit more gives "the circuit needs
      154 qubits but the usable chip has 153" [`s_*`].
@@ -521,7 +536,9 @@ How to run them: [development.md](development.md) §4.
    as a star 1361; QFT on 32 qubits 2861, on 100 qubits 34 917 (a 5.6 MB job, 7 to 9 s).
 
    **What these probes cannot tell.** Where noise drowns the answer (width and depth on
-   a real chip); what IBM answers to `rz(nan)`, to 0 shots and to a 6th job in a minute;
+   a real chip); what IBM answers to `rz(nan)`, to 0 shots and to a 6th job in a minute:
+   `tests/run_ibm_hardware_limits.py` asks a real chip these questions, and has not run
+   yet. Also not covered:
    token expiry in a real queue (item 1); `nvq++` and macOS (never run); chips other
    than `ibm_fez`.
 
@@ -620,7 +637,9 @@ reverse came back wrong: 11 of 120 random kernels, with any router options **[V]
 `experiments/m3_bit_order.py`, ground truth `cudaq.sample` on the simulator.
 
 Fix ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)): the pipeline
-runs `combine-measurements` before routing (then `expand-measurements`, `cc-loop-unroll`).
+runs `combine-measurements` before routing (then `expand-measurements`, `cc-loop-unroll`
+with `maximum-iterations=1024`: the default of 50 rounds stopped kernels with `mz` on 50
+or more qubits, §8 item 9).
 The circuit then measures every qubit in allocation order, and `output_names` lists the
 qubits the kernel measured; `processResults` keeps those bits (`plugin/ResultBits.h`). 0 of
 120 wrong, on path, star, ring and `ibm_fez` graphs, and correct on hardware (§9.8).

@@ -26,9 +26,18 @@ def k_pattern(n: int):
             x(q[i])
 
 
-def pattern(n):
+@cudaq.kernel
+def k_pattern_mz(n: int):
+    q = cudaq.qvector(n)
+    for i in range(n):
+        if i % 3 == 0:
+            x(q[i])
+    mz(q)
+
+
+def pattern(n, kernel=k_pattern):
     want = "".join("1" if i % 3 == 0 else "0" for i in range(n))
-    got, took = timed_sample(k_pattern, n)
+    got, took = timed_sample(kernel, n)
     ok = got == {want: 200}
     return {"outcome": "same" if ok else "WRONG", "seconds": took,
             "detail": "the pattern 100100... in every shot" if ok else f"wanted {want[:20]}..., got {top(got, 2)[:200]}"}
@@ -46,6 +55,13 @@ def s_x_pattern_154(): return pattern(154)
 def s_x_pattern_156(): return pattern(156)
 def s_x_pattern_157(): return pattern(157)
 def s_x_pattern_300(): return pattern(300)
+# With `mz` on the whole register. Up to v0.1.0rc1 this did not compile from
+# 50 qubits on: the pipeline unrolled the loop over the measured qubits for
+# 50 rounds at most (found 2026-11-12 by rehearsing the hardware run).
+def s_x_pattern_with_mz_049(): return pattern(49, k_pattern_mz)
+def s_x_pattern_with_mz_050(): return pattern(50, k_pattern_mz)
+def s_x_pattern_with_mz_051(): return pattern(51, k_pattern_mz)
+def s_x_pattern_with_mz_153(): return pattern(153, k_pattern_mz)
 
 
 # ---- width: GHZ ---------------------------------------------------------------
@@ -73,6 +89,16 @@ def ghz(kernel, n, shots=2000):
             "detail": f"{zeros} x 00..0, {ones} x 11..1" if ok else f"got {top(got, 3)[:300]}"}
 
 
+@cudaq.kernel
+def k_ghz_mz(n: int):
+    q = cudaq.qvector(n)
+    h(q[0])
+    for i in range(n - 1):
+        x.ctrl(q[i], q[i + 1])
+    mz(q)
+
+
+def s_ghz_chain_with_mz_080(): return ghz(k_ghz_mz, 80)
 def s_ghz_chain_010(): return ghz(k_ghz, 10)
 def s_ghz_chain_024(): return ghz(k_ghz, 24)
 def s_ghz_chain_030(): return ghz(k_ghz, 30)

@@ -50,7 +50,11 @@ rough, for part-time work. Each milestone is shippable.
      `reset` (does IBM take it in a circuit of native gates? **[U]**); why `mx` fails in
      our pipeline.
    - Hardware (Bruno starts them): how wide and how deep before noise drowns the answer,
-     and what IBM really answers to a 6th job in a minute.
+     and what IBM really answers to a NaN angle, to 0 shots and to a 6th job in a minute.
+     The script is ready and rehearsed: `tests/run_ibm_hardware_limits.py`
+     ([development.md](development.md) §4).
+   - A release after `v0.1.0rc1` (Bruno tags it): it carries the fix for `mz` on 50 or
+     more qubits, which the released wheel does not have.
 
 ## 3. Open risks
 
@@ -68,6 +72,7 @@ Evidence is in the linked decision records.
 | Label -> qubit search refuses large circuits | **[V]** fine up to about 100 qubits (architecture §8 item 5) | Goes away when upstream passes the layout ([upstream.md](upstream.md) #5) |
 | A failed request while waiting loses a job that is paid for | **[V]** 2026-11-12, fake server: one HTTP 500 during the wait ends `sample`; nothing tries again ([architecture.md](architecture.md) §8 item 9) | For jobs that matter: `sample_async`, keep `str(future)`, ask again. Upstream: [upstream.md](upstream.md) #13 |
 | IBM takes 5 jobs per minute per user | **[V]** IBM REST reference, read 2026-11-12. The plugin does not wait and try again: the 6th job fails, and a `sample` over a list of argument sets loses the answers before it **[V]** fake server, same day. IBM's real reply **[U]** | Keep a list of argument sets to 5, or space the jobs. A hardware check costs no QPU time if the 6th job is refused |
+| The released wheel `v0.1.0rc1` cannot compile a kernel with `mz` on 50 or more qubits | **[V]** 2026-11-12, probes `s_x_pattern_with_mz_050` and three more ([architecture.md](architecture.md) §8 item 9). Fixed on `main` after this change, not in a release yet | With `v0.1.0rc1`: leave the `mz` out. A new release candidate carries the fix (Bruno tags it) |
 | A result with the wrong shape and no error | **[V]** 2026-11-12: extra bits for a gate with 3 or more controls in a kernel without `mz` (CUDA-Q does this for every hardware target); named measurement results come back as one register ([architecture.md](architecture.md) §8 item 9) | Write the `mz`. Named results: next step 5 |
 | Real `/properties` differs from the FakeFez snapshot | **[V]** 2026-11-10: real `ibm_fez` data parses with 0 unreadable entries; it has no "operational" item per qubit, and marks stale benchmarks with an error of 1 (architecture §3.7) | The plugin stops rather than guess, and leaves out what has an error of 1 ([decision 0011](decisions/0011-stop-when-properties-cannot-be-read.md)) |
 | Plugin ABI vs pip `cudaq` | **[V]** for Linux x86_64 and aarch64, 2026-11-11: built against the pip wheel of `cudaq` 0.16.0, the plugin loads into pip `cudaq` 0.16.0 and 0.16.0.post1 and passes the fake-server cases ([architecture.md](architecture.md) §8 item 4). macOS **[U]** | Workflow `wheels` on every pull request, for every supported `cudaq` release; the dev container build stays as the fallback ([decision 0013](decisions/0013-build-against-the-pip-wheel.md)). macOS later |
