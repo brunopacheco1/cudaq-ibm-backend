@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 .env
 chipdata/
+hardware-runs/
 build/
 dist/

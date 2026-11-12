@@ -240,6 +240,13 @@ podman exec cudaq-ibm-rc python /repo/tests/hardware_trace.py ibm_fez
 podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --parts width --widths 20,40 --trace --yes-spend-qpu-time
 ```
 
+A real run writes one JSON file per width or depth job to `hardware-runs/` in the
+repository (git-ignored; `--save <folder>` names another place): all the counts and, with
+`--trace`, the `cz` gates sent, the IBM qubit of each result bit and their calibrated
+errors. Keep these files: a question that comes up after the run then needs no new job.
+The result of the traced run on `ibm_fez` is in [architecture.md](architecture.md) §9.8,
+run 6.
+
 Fewer jobs: `--parts depth`, `--widths 5,20`, `--depths 1,101`. The check of IBM's limit of
 5 jobs per minute is not in the default parts: `--parts rate-limit` sends six one-shot jobs
 without a pause.

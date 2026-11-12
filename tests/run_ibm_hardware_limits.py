@@ -55,6 +55,12 @@ To look at one width again:
     python3 tests/run_ibm_hardware_limits.py --parts width --widths 40 \
         --trace --yes-spend-qpu-time
 
+A real run keeps every result of the width and depth parts: one JSON file
+per job in hardware-runs/ (git-ignored; --save names another folder), with
+all the counts and, with --trace, the circuit's cz gates, the IBM qubit of
+each result bit and their calibrated errors. A question that comes up after
+the run then needs no new job.
+
 The rehearsal samples chains of more than 24 qubits with Stim (pip install
 stim; on Linux aarch64 pip builds it and needs g++). Without Stim it skips
 them and says so.
@@ -131,19 +137,60 @@ def neighbours_agree(counts: dict[str, int]) -> list[float]:
             / shots for i in range(width - 1)]
 
 
+def ones_per_qubit(counts: dict[str, int]) -> list[float]:
+    """For each qubit, the share of shots in which it reads 1. Every qubit
+    of a GHZ state gives 50%."""
+    shots = sum(counts.values())
+    width = len(next(iter(counts)))
+    return [sum(n for bits, n in counts.items() if bits[i] == "1") / shots
+            for i in range(width)]
+
+
+def describe(bits: str) -> str:
+    """A result in few words. Long results are named by how they differ from
+    all 0 or all 1: two results must never look the same when they are not
+    (run 6 printed two different ones as 11111..11111)."""
+    if len(bits) <= 12:
+        return bits
+    ones = bits.count("1")
+    value, other = ("1", "0") if 2 * ones > len(bits) else ("0", "1")
+    odd = [i for i, bit in enumerate(bits) if bit == other]
+    if not odd:
+        return f"all {value}"
+    if len(odd) <= 3:
+        return (f"all {value} but qubit{'s' if len(odd) > 1 else ''} "
+                + " ".join(map(str, odd)))
+    return f"{bits[:5]}..{bits[-5:]} with {ones} ones"
+
+
 def most_frequent(counts: dict[str, int], many: int = 3) -> str:
-    def short(bits):
-        return bits if len(bits) <= 12 else f"{bits[:5]}..{bits[-5:]}"
     top = sorted(counts.items(), key=lambda item: -item[1])[:many]
-    return ", ".join(f"{short(bits)}:{n}" for bits, n in top)
+    return ", ".join(f"{describe(bits)}: {n}" for bits, n in top)
 
 
 class Jobs:
     """Sends one job at a time, keeps IBM's pace, and never raises."""
 
-    def __init__(self, cudaq, pause: float):
+    def __init__(self, cudaq, pause: float, save: Path | None = None,
+                 backend: str = ""):
         self.cudaq, self.pause = cudaq, pause
         self.last, self.sent, self.failed = None, 0, 0
+        self.save, self.backend = save, backend
+
+    def keep(self, name: str, shots: int, counts: dict, trace=None):
+        """Writes the whole result of one job to a file, so that a question
+        that comes up later needs no new job. Never stops the run."""
+        if self.save is None:
+            return
+        try:
+            self.save.mkdir(parents=True, exist_ok=True)
+            now = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+            path = self.save / f"{now}-{self.backend}-{name}.json"
+            path.write_text(json.dumps(
+                {"backend": self.backend, "utc": now, "job": name,
+                 "shots": shots, "counts": counts, "trace": trace}, indent=1))
+        except OSError as problem:
+            print(f"NOTE: the result of {name} was not saved: {problem}")
 
     def wait_for_pace(self):
         if self.last is not None:
@@ -222,6 +269,18 @@ def width_part(jobs, cudaq, widths, shots, widest, trace=None):
         if error:
             print(f"LIMIT width {n:>4}: ERROR after {seconds:.0f} s: {error}")
             continue
+        circuit = problem = None
+        if trace:
+            try:
+                circuit = hardware_trace.parse_log(log)
+            except ValueError as no_circuit:
+                problem = no_circuit
+        jobs.keep(f"width-{n}", shots, counts, circuit and {
+            "cz": circuit["cz"], "measured": circuit["measured"],
+            "readout_error": {q: trace[1].get(q)
+                              for q in circuit["measured"].values()},
+            "cz_error": {f"{a}-{b}": trace[2].get((a, b)) for a, b in
+                         {tuple(sorted(pair)) for pair in circuit["cz"]}}})
         total = sum(counts.values())
         whole = (counts.get("0" * n, 0) + counts.get("1" * n, 0)) / total
         pairs = neighbours_agree(counts)
@@ -241,14 +300,19 @@ def width_part(jobs, cudaq, widths, shots, widest, trace=None):
                   + ", ".join(f"({i},{i + 1}) {share:.1%}"
                               for i, share in weak[:20])
                   + (f" and {len(weak) - 20} more" if len(weak) > 20 else ""))
-        if trace:
-            try:
-                for line in hardware_trace.report(
-                        f"TRACE width {n:>4}", hardware_trace.parse_log(log),
-                        trace[1], trace[2], [i for i, _ in weak]):
-                    print(line)
-            except ValueError as problem:
-                print(f"TRACE width {n:>4}: no trace: {problem}")
+        # A qubit that loses its 1 reads 1 less often than the others.
+        ones = ones_per_qubit(counts)
+        lowest = sorted(range(n), key=lambda i: ones[i])[:3]
+        print(f"LIMIT width {n:>4}: a qubit reads 1 in {sum(ones) / n:.1%} "
+              "of the shots on average (a GHZ state gives 50%); lowest: "
+              + ", ".join(f"qubit {i} {ones[i]:.1%}" for i in lowest))
+        if circuit:
+            for line in hardware_trace.report(
+                    f"TRACE width {n:>4}", circuit, trace[1], trace[2],
+                    [i for i, _ in weak], lowest):
+                print(line)
+        elif trace:
+            print(f"TRACE width {n:>4}: no trace: {problem}")
 
 
 def depth_part(jobs, cudaq, depths, shots):
@@ -258,6 +322,7 @@ def depth_part(jobs, cudaq, depths, shots):
             print(f"LIMIT depth {n:>4} cx: ERROR after {seconds:.0f} s: "
                   f"{error}")
             continue
+        jobs.keep(f"depth-{n}", shots, counts)
         total = sum(counts.values())
         print(f"LIMIT depth {n:>4} cx: 11 in {counts.get('11', 0) / total:6.1%}"
               f" of {total} shots; {seconds:.0f} s; "
@@ -326,6 +391,12 @@ def main() -> int:
                         help="width part: also print the IBM links and "
                              "qubits each job used, with their errors in "
                              "IBM's calibration data")
+    parser.add_argument("--save", type=Path,
+                        help="folder for one JSON file per width or depth "
+                             "job, with every result. Default for a real "
+                             "run: hardware-runs/ in the repository "
+                             "(git-ignored); a rehearsal saves nothing "
+                             "unless this is given")
     parser.add_argument("--child", help=argparse.SUPPRESS)
     parser.add_argument("--yes-spend-qpu-time", action="store_true",
                         help="confirms that real jobs may be sent")
@@ -388,7 +459,8 @@ def main() -> int:
     try:
         plugin_under_test.register(cudaq)
         cudaq.set_target("ibm", **target)
-        jobs = Jobs(cudaq, pause)
+        save = args.save or (None if args.fake else ROOT / "hardware-runs")
+        jobs = Jobs(cudaq, pause, save, target["backend"])
         trace = None
         if args.trace and "width" in parts:
             # Now, and not after the jobs: the plugin reads the same data
