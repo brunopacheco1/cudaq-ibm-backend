@@ -45,9 +45,13 @@ rough, for part-time work. Each milestone is shippable.
      request; a `url` that ends in `/` works; a `mapping_file` without qubits says so; fewer
      samples than shots and an unknown job status give a warning. The chip without `cz`
      already had a clear message.
-   - Plumbing, larger: return the named measurement results and the order of the shots;
-     try our own requests again after a transient error (chip data, results). The job
-     POST and the wait loop are CUDA-Q's ([upstream.md](upstream.md) #13).
+   - Plumbing, larger: the order of the shots (`get_sequential_data()`) is **done**
+     2026-11-12 (quality step 3). Named measurement results are left out: CUDA-Q deprecates
+     them in `sample` and points to `cudaq.run`, which this target does not support
+     ([architecture.md](architecture.md) §8 item 9). Trying the results request again after
+     a transient error is **done** 2026-11-12 (quality step 2,
+     [architecture.md](architecture.md) §2.2; only the results, as CUDA-Q's qBraid helper
+     does). The job POST and the wait loop are CUDA-Q's ([upstream.md](upstream.md) #13).
    - Quantum side (Bruno): rules for `s`, `sdg`, `t`, `tdg`, which makes `my` work;
      `reset` (does IBM take it in a circuit of native gates? **[U]**); why `mx` fails in
      our pipeline.

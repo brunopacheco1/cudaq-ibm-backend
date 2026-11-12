@@ -35,7 +35,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <set>
+#include <thread>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -84,6 +86,10 @@ class IBMServerHelper : public ServerHelper {
   static constexpr int CHIP_CACHE_SECONDS = 60;
   // Device file we wrote (empty when the user gave mapping_file).
   std::string ownDeviceFile;
+  // Pauses before the 2nd and 3rd try of the results GET (quality step 2).
+  // Tests override them with CUDAQ_IBM_RETRY_WAITS_MS, a comma-separated
+  // list (empty: no retry).
+  std::vector<int> retryWaitsMs{2000, 4000};
   // Job status words we did not know and already warned about.
   std::set<std::string> unknownStatuses;
 
@@ -408,6 +414,15 @@ public:
     apiKey = requiredEnv("IBM_QUANTUM_API_KEY");
     crn = requiredEnv("IBM_QUANTUM_CRN");
 
+    if (const char *waits = std::getenv("CUDAQ_IBM_RETRY_WAITS_MS")) {
+      retryWaitsMs.clear();
+      std::stringstream list(waits);
+      std::string item;
+      while (std::getline(list, item, ','))
+        if (!item.empty())
+          retryWaitsMs.push_back(std::stoi(item));
+    }
+
     caBundle = findCaBundle();
     CUDAQ_INFO("IBM: verifying TLS with CA bundle {}", caBundle);
 
@@ -514,17 +529,52 @@ public:
     return std::chrono::seconds(5);
   }
 
+  // §3.5, quality step 2. The job has finished and is paid for, so a
+  // transient failure of this GET must not lose its samples: try again, as
+  // CUDA-Q's qBraid helper does for its results (3 tries, 2 s then 4 s).
+  // RestClient reports the HTTP status only inside its error text
+  // ("HTTP GET Error - status code 503: ..."), so it is read from there.
+  // 401, 403 and 404 cannot get better by waiting: they fail at once.
+  ServerMessage fetchResults(const std::string &jobId) {
+    static const std::regex statusRe(R"(status code (\d+))");
+    const bool verifyTls = true; // RestClient's default is false (§2.2)
+    const int tries = static_cast<int>(retryWaitsMs.size()) + 1;
+    for (int i = 0;; ++i) {
+      try {
+        auto headers = getHeaders();
+        RestClient client;
+        return client.get(baseUrl + "/jobs/" + jobId + "/results", "",
+                          headers, verifyTls);
+      } catch (const nlohmann::json::exception &) {
+        throw; // a reply, but not JSON: readReply explains it
+      } catch (const std::exception &e) {
+        const std::string text = e.what();
+        std::smatch m;
+        const int status =
+            std::regex_search(text, m, statusRe) ? std::stoi(m[1]) : 0;
+        const bool hopeless = status == 401 || status == 403 || status == 404;
+        if (hopeless || i + 1 == tries)
+          throw std::runtime_error(
+              "IBM: GET /jobs/" + jobId + "/results failed" +
+              (hopeless ? "" : " after " + std::to_string(tries) + " tries") +
+              ": " + text +
+              ". The job itself finished on IBM; its results stay there.");
+        CUDAQ_WARN("IBM: GET /jobs/{}/results failed ({}); try {} of {} in "
+                   "{} ms.",
+                   jobId, status ? "HTTP " + std::to_string(status) : text,
+                   i + 2, tries, retryWaitsMs[i]);
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(retryWaitsMs[i]));
+      }
+    }
+  }
+
   // §3.5. One extra GET for the samples (same pattern as IonQ).
   sample_result processResults(ServerMessage &getJobResponse,
                                std::string &jobId) override {
-    auto headers = getHeaders();
-    const bool verifyTls = true; // RestClient's default is false (§2.2)
-    RestClient client;
     const std::string what = "GET /jobs/" + jobId + "/results";
-    ServerMessage results = readReply(what, [&] {
-      return client.get(baseUrl + "/jobs/" + jobId + "/results", "", headers,
-                        verifyTls);
-    });
+    ServerMessage results =
+        readReply(what, [&] { return fetchResults(jobId); });
     CUDAQ_INFO("IBM: results for job {}: {}", jobId, results.dump());
 
     std::vector<std::string> hexSamples;
@@ -560,10 +610,18 @@ public:
         measured.push_back(info.qubitNum);
     const auto keep = ibm::keptBits(measured, numBits);
 
+    // IBM returns one sample per shot, in shot order: keep that order too,
+    // for get_sequential_data() (quality step 3).
     CountsDictionary counts;
-    for (const auto &hex : hexSamples)
-      ++counts[ibm::pickBits(ibm::hexToBits(hex, numBits), keep)];
-    return sample_result(ExecutionResult(counts));
+    std::vector<std::string> shotsInOrder;
+    shotsInOrder.reserve(hexSamples.size());
+    for (const auto &hex : hexSamples) {
+      shotsInOrder.push_back(ibm::pickBits(ibm::hexToBits(hex, numBits), keep));
+      ++counts[shotsInOrder.back()];
+    }
+    ExecutionResult result(counts);
+    result.sequentialData = std::move(shotsInOrder);
+    return sample_result(result);
   }
 };
 

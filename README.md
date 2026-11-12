@@ -60,13 +60,70 @@ and links IBM reports as broken; the plugin rewrites it into IBM's native gates 
 `sx`, `x`, `cz`), sends it to IBM's Sampler and turns the answer back into CUDA-Q's bit
 order. How: [docs/architecture.md](docs/architecture.md).
 
-- Works: `cudaq.sample`, with kernels made of `x`, `y`, `z`, `h`, `s`, `sdg`, `t`, `tdg`,
-  `rx`, `ry`, `rz`, `r1`, `u3`, `cx`, `cz` and `swap` (each one is in the result checks
-  of CI).
-- Refused with a clear error: `cudaq.observe` and `emulate=True`. For expectation values,
-  [examples/expectation_from_samples.py](examples/expectation_from_samples.py) shows how
-  to compute them from `sample` counts.
-- Known limits: [docs/architecture.md](docs/architecture.md) §8.
+## What works and what does not
+
+Everything below was checked against the fake IBM server in CI or by the limit probes
+(`experiments/limits/`), and the hardware results on `ibm_fez`. Details and evidence:
+[docs/architecture.md](docs/architecture.md) §8 and §9.8.
+
+**Works.**
+
+- `cudaq.sample`, `cudaq.sample_async` (a future saved with `str(future)` can be read back
+  later), a list of argument sets, `shots_count` from 1 to 10 million.
+- Gates: `x`, `y`, `z`, `h`, `s`, `sdg`, `t`, `tdg`, `rx`, `ry`, `rz`, `r1`, `u3`, `cx`,
+  `cz`, `swap`, controlled gates and rotations, `exp_pauli`, custom unitaries,
+  `cudaq.adjoint`, `cudaq.control`, kernels calling kernels.
+- Every usable qubit of the chip (153 of 156 on `ibm_fez` in the probes), and deep
+  circuits (100 000 `cx` were accepted by the fake server).
+- The result: counts, `most_probable`, `get_marginal`, and the shots in order
+  (`get_sequential_data()`).
+
+**Not supported, with a clear error and a way around.**
+
+| What | Way around |
+|---|---|
+| `cudaq.observe` | Rotate into the measurement basis and compute from `sample` counts: [examples/expectation_from_samples.py](examples/expectation_from_samples.py) |
+| `emulate=True` | Use a simulator target, e.g. `cudaq.set_target("qpp-cpu")` |
+| `reset`, `cudaq.run`, an `if` on a measurement | None yet |
+| An angle that is NaN or infinite | Check the kernel's arguments (refused before any job is sent) |
+
+**Not supported, and the error does not say why** (CUDA-Q's compiler fails before the
+plugin can explain).
+
+| What | Way around |
+|---|---|
+| `mx` | `h`, then `mz` |
+| `my` | `sdg`, `h`, then `mz` |
+| A loop of 1024 rounds or more | Nested loops, or a builder kernel |
+| `2.0 ** j` with a loop variable | Halve a variable in the loop |
+| A `cudaq.State` as kernel argument | Pass the amplitudes as a list |
+
+**Results that may surprise you.**
+
+- A gate with 3 or more controls in a kernel **without** `mz` returns extra bits (the
+  helper qubits CUDA-Q adds). Write the `mz`.
+- Named measurements (`a = mz(q[0])`): only the global register comes back. CUDA-Q itself
+  deprecates sub-registers in `sample`. Use `get_marginal` on the global result.
+- Angles are sent with 7 significant digits (CUDA-Q prints them so). Keep angles within
+  one turn.
+- `shots_count=0` returns an empty result and sends no job.
+
+**Hardware and cost.**
+
+- Each `sample` is one IBM job and spends QPU time from your plan. IBM accepts 5 jobs per
+  minute per user, and the plugin does not wait and try again: space long lists of
+  argument sets (a 6th job was refused on the fake server; IBM's real answer is untested).
+- Noise grows with size: on `ibm_fez` (2026-11-12) a GHZ chain gave the right answer in
+  93% of shots on 5 qubits, 45% to 64% on 20 and 10% to 17% on 40. Results move by many
+  points within hours.
+- The plugin picks the qubits from IBM's calibration data at every compile. To see which
+  qubits a job used: `CUDAQ_LOG_LEVEL=info`.
+- The request for the results is tried again after a transient error (the job is paid
+  for by then). A failure while CUDA-Q waits for the job ends `sample` with an error,
+  though the job runs on: for long jobs use `sample_async` and keep `str(future)`.
+- An IAM token lasts about an hour, and CUDA-Q does not renew it while it waits for a
+  job, so a queue wait longer than that can fail (shown on the fake server) ([NVIDIA/cuda-quantum#5886](https://github.com/NVIDIA/cuda-quantum/issues/5886)).
+- Linux only (x86_64, aarch64). On a Mac, use a Linux container.
 
 ## The Python prototype
 

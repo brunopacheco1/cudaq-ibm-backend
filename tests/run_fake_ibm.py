@@ -43,6 +43,9 @@ print(counts)
 # The fake server returns samples 0x1, 0x1, 0x2 (IBM bit order). After the
 # plugin reverses bits into CUDA-Q order, that is 10, 10, 01.
 assert counts["10"] == 2 and counts["01"] == 1, counts
+# Quality step 3: the shots also come back in IBM's order.
+assert counts.get_sequential_data() == ["10", "10", "01"], \
+    counts.get_sequential_data()
 print("OK: ISA rewrite, auth, submit, poll and bit-order decoding all work.")
 
 # The M2 rules beyond h and cx. CUDA-Q decomposes to {h, rx, ry, rz, x, z} plus

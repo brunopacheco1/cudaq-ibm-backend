@@ -303,10 +303,16 @@ FAULTS = {
     "results_missing": "/results",
     # The results reply holds half the samples.
     "results_fewer_samples": "/results",
+    # Quality step 2 (retry of the results GET): the first results request
+    # answers 500, or every one does, or one answers 404 (never retried).
+    "results_500_once": "/results",
+    "results_500": "/results",
+    "results_404": "/results",
 }
 if FAULT and FAULT not in FAULTS:
     raise SystemExit(f"unknown FAKE_IBM_FAULT {FAULT!r}; known: {sorted(FAULTS)}")
 fault_polls = {"count": 0}
+fault_hits = {"count": 0}
 
 
 @app.middleware("http")
@@ -321,6 +327,15 @@ async def inject_fault(request: Request, call_next):
     if FAULT == "config_html" and path.endswith("/configuration"):
         return PlainTextResponse("<html>bad gateway</html>", 200,
                                  media_type="text/html")
+    if FAULT in ("results_500_once", "results_500", "results_404") \
+            and path.endswith("/results"):
+        fault_hits["count"] += 1
+        code = int(FAULT.split("_")[1])
+        if FAULT != "results_500_once" or fault_hits["count"] == 1:
+            print(f"[fake-ibm] fault: {path} answers {code} "
+                  f"(request {fault_hits['count']})")
+            return JSONResponse({"errors": [{"message": f"fault {code}"}]},
+                                code)
     if FAULT == "status_unknown_once" and is_poll:
         fault_polls["count"] += 1
         if fault_polls["count"] == 1:

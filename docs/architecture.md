@@ -78,6 +78,18 @@ dev container ([development.md](development.md)).
 So the IAM login uses libcurl directly ([decision 0005](decisions/0005-iam-login-with-libcurl.md)),
 and our own `RestClient` calls pass `enableSsl = true`. Upstream fixes: [upstream.md](upstream.md) #2, #3.
 
+**One retry rule** (quality step 2, 2026-11-12). Only the results request is tried again:
+when it runs, the job has finished and is paid for, so a transient failure must not lose
+its samples. A failed login or chip request sends no job; the user runs again. At most 3
+tries, with pauses of 2 s and 4 s, each logged as a warning; 401, 403 and 404 fail at
+once. This copies CUDA-Q's qBraid helper, the only one of the 11 helpers in 0.16.0 that
+retries anything: its results fetch, 3 tries, 2 s and 4 s, the HTTP status read from
+`RestClient`'s error text ("status code N") **[V]** `QbraidServerHelper.cpp:191-348`.
+IBM's own client retries every request 5 times **[V]** `qiskit-ibm-runtime` 0.52.0,
+`api/session.py`; we chose the smaller rule. For tests, `CUDAQ_IBM_RETRY_WAITS_MS` sets
+the pauses (a comma-separated list; empty means no retry). The job POST and the polls are
+CUDA-Q's and not retried by anyone ([upstream.md](upstream.md) #13).
+
 ### 2.3 TLS needs a CA bundle
 
 **[V]** CUDA-Q builds its own libcurl with `-DCURL_CA_BUNDLE=none -DCURL_CA_PATH=none`
@@ -193,7 +205,7 @@ Content-Type:  application/json
 | `constructGetJobPath` | `{base}/jobs/{id}` (both overloads). |
 | `jobIsDone` | `COMPLETED` -> true; `FAILED`/`CANCELLED` -> **throw** (otherwise CUDA-Q polls forever); else false. |
 | `nextResultPollingInterval` | 5 seconds. |
-| `processResults` | Extra `GET {base}/jobs/{id}/results` with TLS checks on (IonQ does the same). Requires one register. Decodes §3.5 into counts, keeping only the bits of the qubits in `output_names`. Logs the results JSON at INFO. |
+| `processResults` | Extra `GET {base}/jobs/{id}/results` with TLS checks on (IonQ does the same), tried again after a transient failure (§2.2). Requires one register. Decodes §3.5 into counts, keeping only the bits of the qubits in `output_names`. Logs the results JSON at INFO. |
 
 ## 5. Components
 
@@ -215,7 +227,7 @@ Content-Type:  application/json
 | `tests/fake_ibm_server.py`, `tests/test_fake_server.py`, `tests/run_fake_ibm.py` | Fake IBM with the `ibm_fez` wiring, its own tests (CI), and end-to-end runs through the built plugin (§7) | Done (M3) |
 | `tests/isa_simulator.py`, `tests/test_isa_simulator.py` | Statevector simulator for native-gate circuits (`rz`, `sx`, `x`, `cz`, measurements at the end), no noise; the fake server answers jobs with it. The quantum functions are Bruno's. Its tests compare it with Qiskit (CI) | Done (M4) |
 | `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 26 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
-| `tests/run_fake_ibm_errors.py` | Input checks and error messages through the built plugin: 12 cases, some with a fault in the fake server (`FAKE_IBM_FAULT`, §7). In CI | Done (quality step 1) |
+| `tests/run_fake_ibm_errors.py` | Input checks, error messages and the results retry through the built plugin: 15 cases, some with a fault in the fake server (`FAKE_IBM_FAULT`, §7). In CI | Done (quality steps 1, 2) |
 | `tests/gate_rule_kernel.py`, `tests/run_ibm_hardware_gates.py` | A 10-qubit kernel of `rx`, `ry`, `z`, `y` and `u3` with one certain answer: a wrong rewrite rule leaves a known qubit at about half or flips it (§7). The script sends it to real hardware (spends QPU time) or, with `--fake`, to the fake server | Done; ran on `ibm_fez` 2026-11-11, all ten qubits pass (§9.8 run 4) |
 | `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
 | `tests/hardware_trace.py`, `tests/test_hardware_trace.py` | For `run_ibm_hardware_limits.py --trace`: reads the plugin's info log of one job (the `cz` gates sent, the IBM qubit of each result bit) and IBM's calibration data, and prints the links and qubits with the highest errors, what the calibration alone predicts, and where each weak pair was measured. The calibration data is fetched with `requests` (IBM answers `urllib` with HTTP 403, §9.8 run 6); `python tests/hardware_trace.py <backend>` checks that step alone, with no job. Its tests are in CI | Ran on `ibm_fez` 2026-11-12 (§9.8 run 6) |
@@ -345,7 +357,10 @@ Free checks first; only the last one spends QPU time.
   call fails or not as expected, that the output holds the expected message, and, where
   the kernel is refused, that no job reached the server. Passed 2026-11-12 **[V]**, about
   45 s; with the plugin of `main` c94ef61 11 of 12 fail (the twelfth, a future saved as
-  text, guards against a false warning).
+  text, guards against a false warning). Quality step 2 added three cases for the results
+  retry (§2.2): a 500 once (passes on the second try), a 500 every time (fails after 3
+  tries), a 404 (fails at once, no retry); with the plugin before that step the first two
+  fail **[V]** 2026-11-12.
 - `tests/run_token_expiry.py`: needs the built plugin. Starts the fake server with
   `FAKE_IBM_TOKEN_TTL=12` (every login gets a new token that stops working after 12 s) and
   a job that needs 5 polls, then reports whether the poll survived (§8 item 1). The server
@@ -490,8 +505,7 @@ How to run them: [development.md](development.md) §4.
    | A gate with 3 or more controls (or a rotation with 2) in a kernel without `mz` [`g_x_with_3_controls_no_mz`] | Each bit string has extra bits: the helper qubits CUDA-Q adds to split the gate are measured too | CUDA-Q's compile path for hardware: `ionq`, `quantinuum`, `oqc` and `anyon` do the same with `emulate=True` [`g_other_hardware_targets_in_emulation`] | Write the `mz`; then the answer is right [`..._and_mz_on_all`] |
    | An angle far above 2π [`g_angle_very_large`] | Ten million turns plus half a turn (62831856.2 rad) should give 1 on every shot; it is sent as `rx(6.283186e+07)` and 81% of the shots give 00 on two qubits. CUDA-Q prints angles in OpenQASM 2 with 7 significant digits **[V]** `TranslateToOpenQASM.cpp:64`. Within one turn the error is below 10⁻⁶ rad and no probe sees it [`g_angle_many_digits`] | CUDA-Q | Reduce angles to one turn in the caller |
    | `shots_count=0` [`a_shots_0`] | An empty result and no error. No job is sent: `cudaq.sample` runs the kernel until it has `shots_count` shots, so with 0 it never does **[V]** `python/cudaq/runtime/sample.py:174`, tag 0.16.0; the probe's server sees no POST, and on `ibm_fez` the call returned in 0 s (§9.8 run 5) | CUDA-Q | |
-   | Named measurement results (`a = mz(q[0])`) [`g_two_named_measurement_registers`] | The counts are right, but only the register `__global__` comes back | Plugin: `processResults` builds one register | |
-   | `get_sequential_data()` [`a_result_methods`] | Empty: the order of the shots is dropped, though IBM sends it | Plugin | |
+   | Named measurement results (`a = mz(q[0])`) [`g_two_named_measurement_registers`] | The counts are right, but only the register `__global__` comes back. CUDA-Q prints a warning for such a kernel on every target: "Support for sub-registers in `sample_result` is deprecated and will be removed in a future release. Use `run` to retrieve individual measurement results" **[V]** pip `cudaq` 0.16.0, 2026-11-12 | Plugin: `processResults` builds one register; not added, because CUDA-Q is removing the feature (quality step 3) | `get_marginal` on the global register |
    | `noise_model=`, unknown target arguments | CUDA-Q refuses a noise model; an unknown target argument is accepted silently | CUDA-Q | |
 
    **Not supported; the error does not say why.**
@@ -515,6 +529,7 @@ How to run them: [development.md](development.md) §4.
    | A reply to our own requests that is not JSON, or lacks a field [`e_login_answers_html`, `e_status_missing`] | The JSON library's own message, e.g. `parse error at line 1, column 1` | The message names the request: "the reply to GET /backends/ibm_fez/configuration is not JSON (...)". The login reply is never shown (it may hold the token). The job POST and its reply are CUDA-Q's code, so a non-JSON reply there still gives the library's message |
    | `url` or `iam_url` ending in `/` | HTTP 404 | Accepted: the trailing `/` is removed |
    | A `mapping_file` that is not a device file | "no chip layout; the kernel was not compiled for 'ibm'" | "mapping_file ... has no qubits", with an example line |
+   | `get_sequential_data()` [`a_result_methods`] | Empty: the order of the shots was dropped, though IBM sends it | The shots in IBM's order, one bit string each (quality step 3); the probe now reports `works` |
    | The server returns fewer samples than shots [`e_results_half_the_samples`] | Returned as it is, silently | Returned as it is, with a warning in the log: "job ... returned 10 samples for 20 shots". Not an error: the samples are real and the job is paid for |
    | A job status word the plugin does not know [`e_status_unknown_word`] | Polled every 5 s for ever, silently | Same, with one warning in the log naming the word. Not an error: an error would end `sample` while the job runs on and is billed |
 
@@ -524,8 +539,9 @@ How to run them: [development.md](development.md) §4.
    `cudaq.draw` returns an empty text with a warning.
 
    **When IBM misbehaves** [`e_*`, `c_rate_limit_*`].
-   - **No second try.** One HTTP 500 on the job POST or while waiting ends `sample` with
-     an error; in the second case the job runs on and is billed. IBM's own client tries five times on 500, 502, 503, 504 and
+   - **No second try** on CUDA-Q's requests. One HTTP 500 on the job POST or while waiting ends `sample` with
+     an error; in the second case the job runs on and is billed. Since quality step 2 the
+     results request, which is ours, is tried again (§2.2). IBM's own client tries five times on 500, 502, 503, 504 and
      52x **[V]** `qiskit-ibm-runtime` 0.52.0, `api/session.py`. The POST and the wait
      loop are CUDA-Q's code (`Executor.cpp`, `Future.cpp`). Way around: `sample_async`,
      keep `str(future)`, and ask a future rebuilt from that text again
