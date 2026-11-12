@@ -215,6 +215,7 @@ Content-Type:  application/json
 | `tests/fake_ibm_server.py`, `tests/test_fake_server.py`, `tests/run_fake_ibm.py` | Fake IBM with the `ibm_fez` wiring, its own tests (CI), and end-to-end runs through the built plugin (§7) | Done (M3) |
 | `tests/isa_simulator.py`, `tests/test_isa_simulator.py` | Statevector simulator for native-gate circuits (`rz`, `sx`, `x`, `cz`, measurements at the end), no noise; the fake server answers jobs with it. The quantum functions are Bruno's. Its tests compare it with Qiskit (CI) | Done (M4) |
 | `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 26 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
+| `tests/run_fake_ibm_errors.py` | Input checks and error messages through the built plugin: 12 cases, some with a fault in the fake server (`FAKE_IBM_FAULT`, §7). In CI | Done (quality step 1) |
 | `tests/gate_rule_kernel.py`, `tests/run_ibm_hardware_gates.py` | A 10-qubit kernel of `rx`, `ry`, `z`, `y` and `u3` with one certain answer: a wrong rewrite rule leaves a known qubit at about half or flips it (§7). The script sends it to real hardware (spends QPU time) or, with `--fake`, to the fake server | Done; ran on `ibm_fez` 2026-11-11, all ten qubits pass (§9.8 run 4) |
 | `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
 | `tests/run_ibm_hardware_limits.py` | Limits on real hardware (§8 item 9): GHZ chains of 5 to 80 qubits, 1 to 1001 `cx` in a row, a NaN angle and, when asked, six jobs without a pause (that part has not run). It measures; there is no pass mark. Spends QPU time, or `--fake` for a free rehearsal | Ran on `ibm_fez` 2026-11-12 (§9.8 run 5) |
@@ -336,6 +337,14 @@ Free checks first; only the last one spends QPU time.
     2026-11-10 **[V]**: with that change in the simulator every kernel still passed. The
     unit test of the rules (`test_qasm2_to_isa`, matrices up to a global phase) does see
     it.
+- `tests/run_fake_ibm_errors.py`: needs the built plugin; CI job `plugin` runs it. Twelve
+  cases, each in its own process against its own fake server (port 62461); some start the
+  server with `FAKE_IBM_FAULT=<name>`, which makes one reply wrong (an HTML login page, a
+  status word the plugin does not know, half the samples, ...). Each case checks that the
+  call fails or not as expected, that the output holds the expected message, and, where
+  the kernel is refused, that no job reached the server. Passed 2026-11-12 **[V]**, about
+  45 s; with the plugin of `main` c94ef61 11 of 12 fail (the twelfth, a future saved as
+  text, guards against a false warning).
 - `tests/run_token_expiry.py`: needs the built plugin. Starts the fake server with
   `FAKE_IBM_TOKEN_TTL=12` (every login gets a new token that stops working after 12 s) and
   a job that needs 5 polls, then reports whether the poll survived (§8 item 1). The server
@@ -480,7 +489,6 @@ How to run them: [development.md](development.md) §4.
    | A gate with 3 or more controls (or a rotation with 2) in a kernel without `mz` [`g_x_with_3_controls_no_mz`] | Each bit string has extra bits: the helper qubits CUDA-Q adds to split the gate are measured too | CUDA-Q's compile path for hardware: `ionq`, `quantinuum`, `oqc` and `anyon` do the same with `emulate=True` [`g_other_hardware_targets_in_emulation`] | Write the `mz`; then the answer is right [`..._and_mz_on_all`] |
    | An angle far above 2π [`g_angle_very_large`] | Ten million turns plus half a turn (62831856.2 rad) should give 1 on every shot; it is sent as `rx(6.283186e+07)` and 81% of the shots give 00 on two qubits. CUDA-Q prints angles in OpenQASM 2 with 7 significant digits **[V]** `TranslateToOpenQASM.cpp:64`. Within one turn the error is below 10⁻⁶ rad and no probe sees it [`g_angle_many_digits`] | CUDA-Q | Reduce angles to one turn in the caller |
    | `shots_count=0` [`a_shots_0`] | An empty result and no error. No job is sent: `cudaq.sample` runs the kernel until it has `shots_count` shots, so with 0 it never does **[V]** `python/cudaq/runtime/sample.py:174`, tag 0.16.0; the probe's server sees no POST, and on `ibm_fez` the call returned in 0 s (§9.8 run 5) | CUDA-Q | |
-   | The server returns fewer samples than shots, or none [`e_results_half_the_samples`] | Returned as it is | Plugin (no check); only seen with a faulty server | |
    | Named measurement results (`a = mz(q[0])`) [`g_two_named_measurement_registers`] | The counts are right, but only the register `__global__` comes back | Plugin: `processResults` builds one register | |
    | `get_sequential_data()` [`a_result_methods`] | Empty: the order of the shots is dropped, though IBM sends it | Plugin | |
    | `noise_model=`, unknown target arguments | CUDA-Q refuses a noise model; an unknown target argument is accepted silently | CUDA-Q | |
@@ -489,15 +497,25 @@ How to run them: [development.md](development.md) §4.
 
    | What | Error | Cause | Way around |
    |---|---|---|---|
-   | `reset` [`g_reset`] | `cannot parse QASM line: reset var0[0];x var1[0];` | No rule for `reset`; and CUDA-Q prints it without a line break **[V]** `TranslateToOpenQASM.cpp:353` | None yet |
    | `mx` [`g_mx`] | `Remote rest platform Quake lowering failed` (above it: "'quake.mx' op unsupported mid-circuit measurement") | In our pipeline; the four shipped targets above compile it. Which pass **[U]** | `h` then `mz` [`g_x_basis_by_hand_h_then_mz`] |
    | `my` [`g_my`] | `unsupported gate 'sdg' (no rewrite rule yet)` | The `sdg` of the basis change is added after the decomposition, so it reaches the converter, which has no rule for `s`, `sdg`, `t`, `tdg` | `sdg`, `h`, then `mz`, as in `examples/expectation_from_samples.py` |
    | One loop of 1024 rounds or more [`d_one_loop_of_1024_rounds`] | `Could not successfully translate to qasm2` | CUDA-Q unrolls at most 1024 rounds per loop **[V]** `LoopUnroll.cpp:135-138`, and in 0.16.0 not a loop of exactly the limit (NVIDIA/cuda-quantum#5815, closed) | Nested loops, or a builder kernel |
    | `2.0 ** j` with a loop variable [`g_float_power_of_a_loop_variable`] | Same message | CUDA-Q does not fold the power before the OpenQASM printer ("'math.fpowi' op unable to translate") | Halve a variable in the loop; `2 ** j` with integers works up to 2⁶² |
    | A `cudaq.State` as kernel argument [`g_state_from_cudaq_state_object`] | Same message | CUDA-Q: "cannot perform state preparation synthesis on arguments to the kernel" | Pass the amplitudes as a list |
-   | An angle that is NaN or infinite, also from `2 ** 64` in a kernel [`g_angle_nan`] | The job is sent with `rz(nan)`; the fake server refuses it. IBM accepts the POST and ends the job as `Failed` with "Undefined symbol 'nan'" **[V]** §9.8 run 5 (NaN only; infinite not tried) | Plugin (no check). CUDA-Q's own simulator aborts Python on it [`g_angle_nan_on_cudaq_simulator`] | |
-   | A reply that is not JSON, or lacks a field [`e_login_answers_html`, `e_status_missing`] | The JSON library's own message, e.g. `parse error at line 1, column 1` | Plugin and CUDA-Q | |
-   | `url` ending in `/`; a `mapping_file` that is not a device file | HTTP 404; "no chip layout; the kernel was not compiled for 'ibm'" | Plugin | |
+
+   **Changed after the probes** (quality step 1, 2026-11-12). These rows were in the two
+   tables above; each now has a case in `tests/run_fake_ibm_errors.py` (§7), which fails
+   on the plugin before this change **[V]**.
+
+   | What | Before | Now |
+   |---|---|---|
+   | An angle that is NaN or infinite, also from `2 ** 64` in a kernel [`g_angle_nan`] | The job was sent with `rz(nan)`. IBM accepts the POST and ends the job as `Failed` with "Undefined symbol 'nan'" **[V]** §9.8 run 5. CUDA-Q's own simulator aborts Python on it | Refused before any job is sent: "gate 'rx' has an angle that is not a finite number, in: rx(nan) var0[0];" (`Qasm2ToIsa.h`) |
+   | `reset` [`g_reset`] | `cannot parse QASM line: reset var0[0];x var1[0];` (CUDA-Q prints it without a line break **[V]** `TranslateToOpenQASM.cpp:353`) | "reset is not supported on the 'ibm' target yet". Still no rule for it |
+   | A reply to our own requests that is not JSON, or lacks a field [`e_login_answers_html`, `e_status_missing`] | The JSON library's own message, e.g. `parse error at line 1, column 1` | The message names the request: "the reply to GET /backends/ibm_fez/configuration is not JSON (...)". The login reply is never shown (it may hold the token). The job POST and its reply are CUDA-Q's code, so a non-JSON reply there still gives the library's message |
+   | `url` or `iam_url` ending in `/` | HTTP 404 | Accepted: the trailing `/` is removed |
+   | A `mapping_file` that is not a device file | "no chip layout; the kernel was not compiled for 'ibm'" | "mapping_file ... has no qubits", with an example line |
+   | The server returns fewer samples than shots [`e_results_half_the_samples`] | Returned as it is, silently | Returned as it is, with a warning in the log: "job ... returned 10 samples for 20 shots". Not an error: the samples are real and the job is paid for |
+   | A job status word the plugin does not know [`e_status_unknown_word`] | Polled every 5 s for ever, silently | Same, with one warning in the log naming the word. Not an error: an error would end `sample` while the job runs on and is billed |
 
    Refused with a clear error, by CUDA-Q or by us: `observe`, `emulate=True` (item 7),
    `get_state`, `cudaq.run` and any `if` on a measurement, `explicit_measurements`, a
@@ -517,7 +535,8 @@ How to run them: [development.md](development.md) §4.
      fails and the five answers already paid for are lost; with `sample_async` the first
      five futures still give their results.
    - **No time limit.** A job that stays `Queued`, or a status word the plugin does not
-     know, is polled every 5 s for ever [`e_job_never_finishes`, `e_status_unknown_word`].
+     know, is polled every 5 s for ever [`e_job_never_finishes`, `e_status_unknown_word`];
+     an unknown word now gets one warning in the log (see above).
      The words IBM's client knows are the five we handle: Queued, Running, Completed,
      Failed, Cancelled **[V]** `runtime_job_v2.py`, same version. A slow POST (75 s) is
      waited for; whether anything ends that wait **[U]**. The login gives up after 30 s.

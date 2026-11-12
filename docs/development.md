@@ -260,6 +260,7 @@ plugin/build_against_wheel.sh              # writes build/external/ibm
 python3 tests/fake_ibm_server.py 62455 &   # the fake IBM server
 python3 tests/run_fake_ibm.py              # eight OK lines, as in §4
 python3 tests/run_fake_ibm_results.py      # 26 OK lines: results against CUDA-Q's simulator
+python3 tests/run_fake_ibm_errors.py       # 12 OK lines: input checks and error messages
 ```
 
 The first build downloads the headers (about 50 MB, kept in `build/cache`); later builds
