@@ -223,15 +223,15 @@ that is harmless.) The result of that run on `ibm_fez` is in
 
 To see where a chain ran, add `--trace` (width part): for each job it prints the links and
 qubits with the highest errors in IBM's calibration data, what that data alone predicts,
-and the IBM qubits of every weak pair. One login and one GET more, no extra job. One width
-again, one job:
+and the IBM qubits of every weak pair. One login and one GET more, no extra job. The
+rehearsal at 20 qubits, which needs no Stim, then two widths again as two real jobs:
 
 ```bash
-podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --parts width --widths 40 --trace --fake
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --parts width --widths 20 --trace --fake
 ```
 
 ```bash
-podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --parts width --widths 40 --trace --yes-spend-qpu-time
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --parts width --widths 20,40 --trace --yes-spend-qpu-time
 ```
 
 Fewer jobs: `--parts depth`, `--widths 5,20`, `--depths 1,101`. The check of IBM's limit of
