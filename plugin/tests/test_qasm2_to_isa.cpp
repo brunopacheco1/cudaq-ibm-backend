@@ -347,6 +347,21 @@ int main() {
   CHECK(refuses("qreg a[1];\nqreg a[1];\n", "declared twice"),
         "a register declared twice is refused");
 
+  // 7. Input checks (quality step 1, architecture.md §8 item 9): an angle
+  //    that is not a finite number never reaches IBM, and reset gets a
+  //    message that names it (CUDA-Q prints it with no line break).
+  CHECK(refuses(wrap(1, "rx(nan) var0[0];\n"), "not a finite number"),
+        "an angle that is NaN is refused");
+  CHECK(refuses(wrap(1, "rz(-nan) var0[0];\n"), "not a finite number"),
+        "an angle that is -NaN is refused");
+  CHECK(refuses(wrap(1, "ry(inf) var0[0];\n"), "not a finite number"),
+        "an angle that is infinite is refused");
+  CHECK(refuses(wrap(1, "u3(1.0,-inf,0.0) var0[0];\n"), "not a finite number"),
+        "a u3 with one infinite angle is refused");
+  CHECK(refuses(wrap(2, "reset var0[0];x var0[1];\n"),
+                "reset is not supported"),
+        "reset is refused with a message that names it");
+
   std::cout << (failures ? "\nFAILED: " : "\nALL PASSED")
             << (failures ? std::to_string(failures) : "") << "\n";
   return failures ? 1 : 0;

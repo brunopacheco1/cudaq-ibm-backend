@@ -52,6 +52,9 @@ SEED = int(os.environ.get("FAKE_IBM_SEED", "2026"))
 # FAKE_IBM_LOG_CIRCUITS=1 prints every circuit a job sends, to see what the
 # plugin made of a kernel.
 LOG_CIRCUITS = os.environ.get("FAKE_IBM_LOG_CIRCUITS", "0") == "1"
+# FAKE_IBM_FAULT=<name> makes one reply wrong, to test the plugin's error
+# messages (tests/run_fake_ibm_errors.py). The names are in FAULTS below.
+FAULT = os.environ.get("FAKE_IBM_FAULT", "")
 
 # IBM accepts only "ISA" circuits: native gates on physical qubits ($k).
 NATIVE_LINE = re.compile(
@@ -285,6 +288,56 @@ async def job_results(job_id: str, request: Request):
     return {"results": [{"data": {"c": {
         "samples": jobs[job_id]["samples"],
         "num_bits": jobs[job_id]["num_bits"]}}}]}
+
+
+FAULTS = {
+    # The login answers with an HTML page (a proxy or a maintenance page).
+    "login_html": "/identity/token",
+    # The chip wiring answers with an HTML page.
+    "config_html": "/configuration",
+    # The first poll answers with a status word the plugin does not know.
+    "status_unknown_once": "/jobs/{id}",
+    # Every poll answers without a status.
+    "status_missing": "/jobs/{id}",
+    # The results reply has no "results" field.
+    "results_missing": "/results",
+    # The results reply holds half the samples.
+    "results_fewer_samples": "/results",
+}
+if FAULT and FAULT not in FAULTS:
+    raise SystemExit(f"unknown FAKE_IBM_FAULT {FAULT!r}; known: {sorted(FAULTS)}")
+fault_polls = {"count": 0}
+
+
+@app.middleware("http")
+async def inject_fault(request: Request, call_next):
+    """Answer one request wrongly, as FAKE_IBM_FAULT says (off by default)."""
+    from fastapi.responses import JSONResponse, PlainTextResponse
+    path = request.url.path
+    is_poll = request.method == "GET" and re.search(r"/jobs/[^/]+$", path)
+    if FAULT == "login_html" and path.endswith("/identity/token"):
+        return PlainTextResponse("<html>maintenance</html>", 200,
+                                 media_type="text/html")
+    if FAULT == "config_html" and path.endswith("/configuration"):
+        return PlainTextResponse("<html>bad gateway</html>", 200,
+                                 media_type="text/html")
+    if FAULT == "status_unknown_once" and is_poll:
+        fault_polls["count"] += 1
+        if fault_polls["count"] == 1:
+            print("[fake-ibm] fault: poll answers status Paused")
+            return JSONResponse({"id": path.rsplit("/", 1)[1],
+                                 "state": {"status": "Paused"}})
+    if FAULT == "status_missing" and is_poll:
+        return JSONResponse({"id": path.rsplit("/", 1)[1]})
+    if FAULT == "results_missing" and path.endswith("/results"):
+        return JSONResponse({"metadata": {}})
+    if FAULT == "results_fewer_samples" and path.endswith("/results"):
+        job = jobs.get(path.split("/")[-2])
+        if job is not None:
+            half = job["samples"][: max(1, len(job["samples"]) // 2)]
+            return JSONResponse({"results": [{"data": {"c": {
+                "samples": half, "num_bits": job["num_bits"]}}}]})
+    return await call_next(request)
 
 
 if __name__ == "__main__":

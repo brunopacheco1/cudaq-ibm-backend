@@ -39,10 +39,12 @@ rough, for part-time work. Each milestone is shippable.
    ([architecture.md](architecture.md) §9.8).
 5. From the limit probes of 2026-11-12 ([architecture.md](architecture.md) §8 item 9).
    Candidates, none decided; Bruno picks:
-   - Plumbing, small: refuse an angle that is NaN or infinite before a job is sent (IBM
-     fails such a job, [architecture.md](architecture.md) §9.8 run 5); compare the number of samples with the shots; say what is wrong when
-     a reply is not JSON, when a `mapping_file` is not a device file, and when the chip
-     has no `cz`; accept a `url` that ends in `/`.
+   - Plumbing, small: **done** 2026-11-12 (quality step 1, [architecture.md](architecture.md)
+     §8 item 9, "Changed after the probes"): NaN and infinite angles and `reset` are
+     refused before a job is sent; a reply that is not JSON or lacks a field names the
+     request; a `url` that ends in `/` works; a `mapping_file` without qubits says so; fewer
+     samples than shots and an unknown job status give a warning. The chip without `cz`
+     already had a clear message.
    - Plumbing, larger: return the named measurement results and the order of the shots;
      try our own requests again after a transient error (chip data, results). The job
      POST and the wait loop are CUDA-Q's ([upstream.md](upstream.md) #13).

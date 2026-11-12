@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <map>
@@ -215,6 +216,11 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2,
       out.measure(qubit(m[1], std::stoi(m[2])), result.numClbits++);
       continue;
     }
+    // CUDA-Q prints reset with no line break after it, e.g.
+    // "reset var0[0];x var1[0];" (architecture.md §8 item 9).
+    if (line.compare(first, 5, "reset") == 0)
+      throw std::runtime_error(
+          "ibm: reset is not supported on the 'ibm' target yet, in: " + line);
     if (!std::regex_match(line, m, gateRe))
       throw std::runtime_error("ibm: cannot parse QASM line: " + line);
 
@@ -226,6 +232,13 @@ inline IsaCircuit qasm2ToIsaQasm3(const std::string &qasm2,
       while (std::getline(as, a, ','))
         args.push_back(std::stod(a));
     }
+    // IBM accepts a job with rz(nan) and fails it later (architecture.md
+    // §9.8 run 5), so refuse it here, before anything is sent.
+    for (double a : args)
+      if (!std::isfinite(a))
+        throw std::runtime_error(
+            "ibm: gate '" + name + "' has an angle that is not a finite "
+            "number, in: " + line + ". Check the kernel's arguments.");
     std::vector<int> qs;
     {
       const std::string ops = m[3];

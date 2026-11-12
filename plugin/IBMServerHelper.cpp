@@ -35,6 +35,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -83,6 +84,8 @@ class IBMServerHelper : public ServerHelper {
   static constexpr int CHIP_CACHE_SECONDS = 60;
   // Device file we wrote (empty when the user gave mapping_file).
   std::string ownDeviceFile;
+  // Job status words we did not know and already warned about.
+  std::set<std::string> unknownStatuses;
 
   // ---- Small helpers -------------------------------------------------------
   static std::string valueOr(const BackendConfig &config,
@@ -99,6 +102,31 @@ class IBMServerHelper : public ServerHelper {
           std::string(name) +
           " is not set. Export it before using the 'ibm' target.");
     return value;
+  }
+
+  // "https://host/api/" and "https://host/api" are the same base URL.
+  static std::string withoutTrailingSlash(std::string url) {
+    while (!url.empty() && url.back() == '/')
+      url.pop_back();
+    return url;
+  }
+
+  // Run one of our own requests and read its reply. A reply that is not
+  // JSON, or that lacks a field we need, gets a message that names the
+  // request instead of the JSON library's bare text (architecture.md §8
+  // item 9). Not for the login: its reply may hold the token.
+  template <typename F>
+  static auto readReply(const std::string &what, F &&f) -> decltype(f()) {
+    try {
+      return f();
+    } catch (const nlohmann::json::parse_error &e) {
+      throw std::runtime_error("IBM: the reply to " + what +
+                               " is not JSON (" + e.what() + ").");
+    } catch (const nlohmann::json::exception &e) {
+      throw std::runtime_error("IBM: the reply to " + what +
+                               " lacks what IBM documents (" + e.what() +
+                               ").");
+    }
   }
 
   static std::string toUpper(std::string s) {
@@ -180,9 +208,25 @@ class IBMServerHelper : public ServerHelper {
       throw std::runtime_error("IBM IAM: HTTP " + std::to_string(status) +
                                ": " + response);
 
-    const auto body = nlohmann::json::parse(response);
+    // The body is never shown from here on: it may hold the token.
+    nlohmann::json body;
+    try {
+      body = nlohmann::json::parse(response);
+    } catch (const nlohmann::json::exception &) {
+      throw std::runtime_error("IBM IAM: the login reply is not JSON (HTTP " +
+                               std::to_string(status) +
+                               "). Check iam_url, or try again later.");
+    }
+    if (!body.is_object() || !body.contains("access_token") ||
+        !body.at("access_token").is_string())
+      throw std::runtime_error(
+          "IBM IAM: the login reply has no 'access_token' (HTTP " +
+          std::to_string(status) + "). Check iam_url, or try again later.");
     const auto now = std::chrono::system_clock::now();
-    const int expiresIn = body.value("expires_in", 3600);
+    int expiresIn = 3600;
+    if (auto it = body.find("expires_in");
+        it != body.end() && it->is_number_integer())
+      expiresIn = it->get<int>();
     tokenExpires = now + std::chrono::seconds(expiresIn);
     return body.at("access_token").get<std::string>();
   }
@@ -209,8 +253,11 @@ class IBMServerHelper : public ServerHelper {
     const std::string base = baseUrl + "/backends/" + backend;
     RestClient client;
     auto headers = getHeaders();
-    const ServerMessage config =
-        client.get(base + "/configuration", "", headers, verifyTls);
+    const ServerMessage config = readReply(
+        "GET /backends/" + backend + "/configuration",
+        [&] {
+          return client.get(base + "/configuration", "", headers, verifyTls);
+        });
     ServerMessage props;
     try {
       props = client.get(base + "/properties", "", headers, verifyTls);
@@ -307,6 +354,11 @@ public:
       std::stringstream text;
       text << in.rdbuf();
       layout.adj = ibm::parseDeviceFile(text.str());
+      if (layout.adj.empty())
+        throw std::runtime_error(
+            "IBM: mapping_file " + path +
+            " has no qubits. A device file has one line per qubit, e.g. "
+            "\"0 --> {1, 2}\" (qubit 0 is linked to qubits 1 and 2).");
       layout.ibmId.resize(layout.adj.size());
       for (std::size_t i = 0; i < layout.ibmId.size(); ++i)
         layout.ibmId[i] = static_cast<int>(i);
@@ -351,8 +403,8 @@ public:
     backendConfig = config; // keep everything CUDA-Q passes along
 
     backend = valueOr(config, "backend", DEFAULT_BACKEND);
-    baseUrl = valueOr(config, "url", DEFAULT_URL) + "/v1";
-    iamUrl = valueOr(config, "iam_url", DEFAULT_IAM_URL);
+    baseUrl = withoutTrailingSlash(valueOr(config, "url", DEFAULT_URL)) + "/v1";
+    iamUrl = withoutTrailingSlash(valueOr(config, "iam_url", DEFAULT_IAM_URL));
     apiKey = requiredEnv("IBM_QUANTUM_API_KEY");
     crn = requiredEnv("IBM_QUANTUM_CRN");
 
@@ -435,9 +487,13 @@ public:
   }
 
   // §3.4. Throw on failure, otherwise CUDA-Q would poll forever.
+  // A status word we do not know is logged once and polled on: an error
+  // would end sample() while the job runs on and is billed (quality step 1).
   bool jobIsDone(ServerMessage &getJobResponse) override {
-    const std::string status =
-        toUpper(getJobResponse.at("state").at("status").get<std::string>());
+    const std::string status = readReply("GET /jobs/{id}", [&] {
+      return toUpper(
+          getJobResponse.at("state").at("status").get<std::string>());
+    });
     if (status == "COMPLETED")
       return true;
     if (status == "FAILED" || status == "CANCELLED") {
@@ -445,7 +501,12 @@ public:
       throw std::runtime_error("IBM job ended with status " + status +
                                (reason.empty() ? "" : ": " + reason));
     }
-    return false; // QUEUED, RUNNING, ...
+    if (status != "QUEUED" && status != "RUNNING" &&
+        unknownStatuses.insert(status).second)
+      CUDAQ_WARN("IBM: the job has status '{}', which this plugin does not "
+                 "know. It keeps polling every 5 s; stop with Ctrl-C.",
+                 status);
+    return false; // QUEUED, RUNNING, or a word we do not know
   }
 
   std::chrono::microseconds
@@ -459,26 +520,38 @@ public:
     auto headers = getHeaders();
     const bool verifyTls = true; // RestClient's default is false (§2.2)
     RestClient client;
-    ServerMessage results = client.get(baseUrl + "/jobs/" + jobId + "/results",
-                                       "", headers, verifyTls);
+    const std::string what = "GET /jobs/" + jobId + "/results";
+    ServerMessage results = readReply(what, [&] {
+      return client.get(baseUrl + "/jobs/" + jobId + "/results", "", headers,
+                        verifyTls);
+    });
     CUDAQ_INFO("IBM: results for job {}: {}", jobId, results.dump());
 
-    const auto &data = results.at("results").at(0).at("data");
-    if (data.size() != 1)
-      throw std::runtime_error(
-          "IBM: only circuits with one classical register are supported "
-          "in M1; got " +
-          std::to_string(data.size()));
-    const auto &reg = data.begin().value();
-    const auto &samples = reg.at("samples");
-
-    // Our circuit measures every qubit in allocation order (combine-
-    // measurements in ibm.yml.in), so c[i] is qubit i. Keep the qubits the
-    // user measured, as CUDA-Q's output_names lists them (ResultBits.h).
     std::vector<std::string> hexSamples;
-    for (const auto &s : samples)
-      hexSamples.push_back(s.get<std::string>());
-    std::size_t numBits = reg.value("num_bits", 0);
+    std::size_t numBits = 0;
+    readReply(what, [&] {
+      const auto &data = results.at("results").at(0).at("data");
+      if (data.size() != 1)
+        throw std::runtime_error(
+            "IBM: only circuits with one classical register are supported; "
+            "got " +
+            std::to_string(data.size()));
+      const auto &reg = data.begin().value();
+      // Our circuit measures every qubit in allocation order (combine-
+      // measurements in ibm.yml.in), so c[i] is qubit i. Keep the qubits
+      // the user measured, as CUDA-Q's output_names lists them
+      // (ResultBits.h).
+      for (const auto &s : reg.at("samples"))
+        hexSamples.push_back(s.get<std::string>());
+      numBits = reg.value("num_bits", 0);
+    });
+    // Seen only with a faulty server: fewer samples than shots. They are
+    // still real samples of a job that is paid for, so warn and return
+    // them (quality step 1).
+    if (hexSamples.size() != shots)
+      CUDAQ_WARN("IBM: job {} returned {} samples for {} shots; the result "
+                 "holds the {} samples IBM returned.",
+                 jobId, hexSamples.size(), shots, hexSamples.size());
     if (numBits == 0)
       numBits = ibm::widestSample(hexSamples);
     std::vector<std::size_t> measured;
