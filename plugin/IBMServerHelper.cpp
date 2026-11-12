@@ -610,10 +610,18 @@ public:
         measured.push_back(info.qubitNum);
     const auto keep = ibm::keptBits(measured, numBits);
 
+    // IBM returns one sample per shot, in shot order: keep that order too,
+    // for get_sequential_data() (quality step 3).
     CountsDictionary counts;
-    for (const auto &hex : hexSamples)
-      ++counts[ibm::pickBits(ibm::hexToBits(hex, numBits), keep)];
-    return sample_result(ExecutionResult(counts));
+    std::vector<std::string> shotsInOrder;
+    shotsInOrder.reserve(hexSamples.size());
+    for (const auto &hex : hexSamples) {
+      shotsInOrder.push_back(ibm::pickBits(ibm::hexToBits(hex, numBits), keep));
+      ++counts[shotsInOrder.back()];
+    }
+    ExecutionResult result(counts);
+    result.sequentialData = std::move(shotsInOrder);
+    return sample_result(result);
   }
 };
 
