@@ -35,8 +35,13 @@ BITS = re.compile(r"^bit\[(\d+)\] c;$")
 
 def stim_samples(qasm3: str, shots: int, seed: int):
     """Samples of a Clifford ISA circuit, in IBM's hex format; None if the
-    circuit is not Clifford."""
-    import stim
+    circuit is not Clifford, or if Stim is not installed (it has no ready
+    wheel for every platform: on Linux aarch64 pip builds it and needs g++).
+    The fake server's own simulator then answers, up to its 24 qubits."""
+    try:
+        import stim
+    except ImportError:
+        return None
     circuit = stim.Circuit()
     measured = {}
     n_bits = 0

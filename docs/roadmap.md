@@ -39,8 +39,8 @@ rough, for part-time work. Each milestone is shippable.
    ([architecture.md](architecture.md) §9.8).
 5. From the limit probes of 2026-11-12 ([architecture.md](architecture.md) §8 item 9).
    Candidates, none decided; Bruno picks:
-   - Plumbing, small: refuse an angle that is NaN or infinite and `shots_count=0` before
-     a job is sent; compare the number of samples with the shots; say what is wrong when
+   - Plumbing, small: refuse an angle that is NaN or infinite before a job is sent (IBM
+     fails such a job, [architecture.md](architecture.md) §9.8 run 5); compare the number of samples with the shots; say what is wrong when
      a reply is not JSON, when a `mapping_file` is not a device file, and when the chip
      has no `cz`; accept a `url` that ends in `/`.
    - Plumbing, larger: return the named measurement results and the order of the shots;
@@ -49,10 +49,13 @@ rough, for part-time work. Each milestone is shippable.
    - Quantum side (Bruno): rules for `s`, `sdg`, `t`, `tdg`, which makes `my` work;
      `reset` (does IBM take it in a circuit of native gates? **[U]**); why `mx` fails in
      our pipeline.
-   - Hardware (Bruno starts them): how wide and how deep before noise drowns the answer,
-     and what IBM really answers to a NaN angle, to 0 shots and to a 6th job in a minute.
-     The script is ready and rehearsed: `tests/run_ibm_hardware_limits.py`
-     ([development.md](development.md) §4).
+   - Hardware: the limits run of 2026-11-12 is done ([architecture.md](architecture.md)
+     §9.8 run 5). What it opens, all Bruno's to decide (layout and the quantum side):
+     why a GHZ chain breaks at one pair between 20 and 40 qubits (run GHZ-40 again with
+     `CUDAQ_LOG_LEVEL=info` to see the qubits, and look at the `cz` errors of the links
+     used); whether links with a high `cz` error should be dropped like broken ones;
+     why 101 equal `cx` lose more than their per-gate error says. Not run: IBM's answer
+     to a 6th job in a minute (`--parts rate-limit`).
    - A release after `v0.1.0rc1` (Bruno tags it): it carries the fix for `mz` on 50 or
      more qubits, which the released wheel does not have.
 

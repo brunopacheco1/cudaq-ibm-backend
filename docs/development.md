@@ -195,16 +195,31 @@ podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/te
 ```
 
 The limits on real hardware ([architecture.md](architecture.md) §8 item 9): how wide a GHZ
-chain and how many `cx` in a row survive the noise, and what IBM answers to a NaN angle and
-to 0 shots. About 11 jobs. It measures, there is no pass mark: write down what you expect
-before the run. The script waits 13 s between jobs, because IBM takes 5 jobs per minute.
-The rehearsal also needs `stim`:
+chain and how many `cx` in a row survive the noise, and what IBM answers to a NaN angle.
+Ten jobs. It measures, there is no pass mark: write down what you expect before the run.
+The script waits 13 s between jobs, because IBM takes 5 jobs per minute. First the free
+rehearsal; every line it prints must show 100%, and the NaN angle must be refused:
 
 ```bash
-podman exec cudaq-ibm-rc pip install -q fastapi uvicorn python-multipart stim
+podman exec cudaq-ibm-rc pip install -q fastapi uvicorn python-multipart
 podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --fake
+```
+
+Without Stim the rehearsal skips chains of more than 24 qubits and says so. Stim has no
+ready wheel for Linux aarch64 (the container on a Mac): `pip install stim` builds it there
+and needs `g++` (`apt-get update && apt-get install -y g++` in the container) **[V]**
+2026-11-12, `stim` 1.16.0, Python 3.12. Then, on its own, the real run, which spends QPU
+time:
+
+```bash
 podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --yes-spend-qpu-time
 ```
+
+Run the two blocks one after the other, and the real run only when the rehearsal passed:
+on 2026-11-12 both were pasted at once and the real run started after a rehearsal that had
+failed. (A pasted line that starts with `#` gives `zsh: command not found: #` on a Mac;
+that is harmless.) The result of that run on `ibm_fez` is in
+[architecture.md](architecture.md) §9.8, run 5.
 
 Fewer jobs: `--parts depth`, `--widths 5,20`, `--depths 1,101`. The check of IBM's limit of
 5 jobs per minute is not in the default parts: `--parts rate-limit` sends six one-shot jobs
