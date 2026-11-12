@@ -111,9 +111,11 @@ def percent(value) -> str:
 
 
 def report(label: str, circuit: dict, readout: dict, links: dict,
-           weak_pairs: list[int], many: int = 5) -> list[str]:
+           weak_pairs: list[int], low_qubits: list[int] = (),
+           many: int = 5) -> list[str]:
     """The lines to print for one traced job. `weak_pairs` holds each i for
-    which the neighbours (i, i+1) of the chain agree too rarely."""
+    which the neighbours (i, i+1) of the chain agree too rarely;
+    `low_qubits` the chain qubits that read 1 least often."""
     lines = []
     used = {}
     for a, b in circuit["cz"]:
@@ -173,6 +175,12 @@ def report(label: str, circuit: dict, readout: dict, links: dict,
             f"{label}: weak pair ({i},{i + 1}) is measured on IBM qubits "
             f"{a} and {b}: readout errors {percent(readout.get(a))} and "
             f"{percent(readout.get(b))}; {how}")
+    low = [f"chain qubit {i} is IBM qubit {measured[i]} (readout error "
+           f"{percent(readout.get(measured[i]))})"
+           for i in low_qubits if i in measured]
+    if low:
+        lines.append(f"{label}: the qubits that read 1 least often: "
+                     + ", ".join(low))
     return lines
 
 

@@ -127,3 +127,11 @@ def test_fetch_properties_never_prints_a_failed_login_body():
             iam_url="https://iam.test/identity/token")
     assert "HTTP 400" in str(failure.value)
     assert "k3y" not in str(failure.value)
+
+
+def test_report_names_the_ibm_qubits_that_read_1_least_often():
+    circuit = {"cz": [(7, 8)], "measured": {0: 7, 1: 8}}
+    lines = hardware_trace.report("T", circuit, {7: 0.01, 8: 0.02},
+                                  {(7, 8): 0.003}, [], low_qubits=[1])
+    assert lines[-1] == ("T: the qubits that read 1 least often: chain qubit "
+                         "1 is IBM qubit 8 (readout error 2.00%)")

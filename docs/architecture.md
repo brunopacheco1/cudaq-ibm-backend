@@ -218,8 +218,8 @@ Content-Type:  application/json
 | `tests/run_fake_ibm_errors.py` | Input checks and error messages through the built plugin: 12 cases, some with a fault in the fake server (`FAKE_IBM_FAULT`, §7). In CI | Done (quality step 1) |
 | `tests/gate_rule_kernel.py`, `tests/run_ibm_hardware_gates.py` | A 10-qubit kernel of `rx`, `ry`, `z`, `y` and `u3` with one certain answer: a wrong rewrite rule leaves a known qubit at about half or flips it (§7). The script sends it to real hardware (spends QPU time) or, with `--fake`, to the fake server | Done; ran on `ibm_fez` 2026-11-11, all ten qubits pass (§9.8 run 4) |
 | `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
-| `tests/hardware_trace.py`, `tests/test_hardware_trace.py` | For `run_ibm_hardware_limits.py --trace`: reads the plugin's info log of one job (the `cz` gates sent, the IBM qubit of each result bit) and IBM's calibration data, and prints the links and qubits with the highest errors, what the calibration alone predicts, and where each weak pair was measured. Its tests are in CI | Written 2026-11-12; rehearsed, not yet run on hardware |
-| `tests/run_ibm_hardware_limits.py` | Limits on real hardware (§8 item 9): GHZ chains of 5 to 80 qubits, 1 to 1001 `cx` in a row, a NaN angle and, when asked, six jobs without a pause (that part has not run). It measures; there is no pass mark. Spends QPU time, or `--fake` for a free rehearsal | Ran on `ibm_fez` 2026-11-12 (§9.8 run 5) |
+| `tests/hardware_trace.py`, `tests/test_hardware_trace.py` | For `run_ibm_hardware_limits.py --trace`: reads the plugin's info log of one job (the `cz` gates sent, the IBM qubit of each result bit) and IBM's calibration data, and prints the links and qubits with the highest errors, what the calibration alone predicts, and where each weak pair was measured. The calibration data is fetched with `requests` (IBM answers `urllib` with HTTP 403, §9.8 run 6); `python tests/hardware_trace.py <backend>` checks that step alone, with no job. Its tests are in CI | Ran on `ibm_fez` 2026-11-12 (§9.8 run 6) |
+| `tests/run_ibm_hardware_limits.py` | Limits on real hardware (§8 item 9): GHZ chains of 5 to 80 qubits, 1 to 1001 `cx` in a row, a NaN angle and, when asked, six jobs without a pause (that part has not run). It measures; there is no pass mark. A real run keeps every result of the width and depth parts in `hardware-runs/` (git-ignored). Spends QPU time, or `--fake` for a free rehearsal | Ran on `ibm_fez` 2026-11-12 (§9.8 runs 5 and 6) |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
 | `experiments/limits/` | The limit probes of §8 item 9: `run.py` (runner), `cases_*.py` (the probes), `probe_server.py` (the fake server plus faults, odd chips and Stim for wide circuits), and the report of the last full run | Run by hand, 2026-11-12 |
@@ -859,7 +859,7 @@ What it shows:
   run did not log the qubits. Two candidates. A link with a high `cz` error is still
   "usable": §9.4 step 1 drops only an error of exactly 1, and the router does not look
   at errors. Or the two qubits are far apart on the chip and the router joined them
-  with many swaps.
+  with many swaps. Run 6 looked with a trace: the break did not come back.
 - **Depth: 11 `cx` are fine, 101 are not.** From 1 to 11 `cx` each one costs 0.4% of the
   shots. At that rate 101 would give about 65%; the run gave 43.8%. The loss is not
   spread over the wrong answers: `10` (control right, target wrong) has 38.6%. An error
@@ -885,3 +885,87 @@ What it shows:
 - Since this run the script also lists every pair that agrees in less than 90% of the
   shots. One weak pair means a cut between two qubits; two weak pairs side by side
   mean the qubit between them.
+
+**Run 6, 2026-11-12, where a chain runs.** `tests/run_ibm_hardware_limits.py --parts width
+--widths 20,40 --trace --yes-spend-qpu-time`, started by Bruno between 11:32 and 11:33 UTC
+in the same container as run 5 (wheel 0.1.0rc1): two jobs of 1000 shots, 16 s and 11 s.
+The question came from run 5: why does a chain break at one pair? `--trace` reads the
+plugin's info log of each job (the `cz` gates it sent, the IBM qubit of each result bit)
+and IBM's calibration data, fetched just before the jobs (`tests/hardware_trace.py`).
+"Calibration predicts" is the product of (1 - error) over every `cz` and every readout of
+the circuit, with IBM's numbers.
+
+| Qubits | All 0 or all 1 | Run 5, four hours before | Calibration predicts | `cz` sent | Neighbours agree, mean |
+|---|---|---|---|---|---|
+| 20 | 45.4% | 64.4% | 76.4% (`cz` 91.8%, readout 83.3%) | 28 | 93.2% |
+| 40 | 17.1% | 10.5% | 36.4% (`cz` 75.4%, readout 48.3%) | 57 | 91.0% |
+
+The weak pairs (below 90%) come in groups around one IBM qubit. "Expected" is 100% minus
+the two readout errors and the errors of the `cz` on the link between the two qubits, a
+rough sum.
+
+| IBM qubit | Its calibrated errors | Weak pairs it is in (measured) | Expected from calibration |
+|---|---|---|---|
+| 102 | readout 8.54%; link 102-103 `cz` 10.97% | 40: (5,6) 81.8%, (6,7) 78.8% | about 87% and 80% |
+| 113 | readout 11.72% | 40: (38,39) 85.4% | about 87% |
+| 126 | readout 4.00%; link 126-127 `cz` 0.76%, 4 `cz` | 40: (19,20) 88.4%, (20,21) 85.3% | about 95% and 92% |
+| 143 | readout 0.39%; links 0.19% to 0.22% | 20: (5,6) 73.4%, (6,7) 76.3%; 40: (13,14) 75.4%, (14,15) 75.1% | about 98% to 99% |
+| 120 | readout 1.86%; link 120-121 `cz` 0.24% | 20: (0,1) 82.9%; 40: (1,2) 83.8%, (2,3) 83.4% | about 97% |
+| 125 | readout 2.39% | 40: (10,11) 87.3%, (11,12) 87.3% | about 96% to 97% |
+
+Also weak at 40 qubits: (0,1) 87.4% on IBM qubits 124 and 122, and (4,5) 87.5% on 116
+and 101 (readout 2.83% and 4.05%).
+
+What it shows:
+
+- **The layout does put a chain on bad qubits and links.** The 40-qubit chain ran one
+  `cz` over link 102-103 (error 10.97%) and measured on qubits 113 and 102 (readout
+  11.72% and 8.54%). §9.4 step 1 drops only an error of exactly 1, and the router does
+  not look at errors. The other links used are far better: at 20 qubits the highest is
+  0.95% and the fifth highest 0.26%. Without that one link and those two readouts the
+  calibration forecast for 40 qubits would be about 50% instead of 36.4%. Whether 40
+  better qubits were free that close to the root was not checked **[U]**. A check with
+  no job, just before the run, found four usable links above 12% on the chip: 72-73
+  19.35%, 71-72 17.10%, 148-149 17.05%, 27-28 12.62% (and 32-33 at 100%, dropped).
+- **The worst qubit looks fine in the calibration data.** IBM qubit 143 is the middle of
+  the two weakest pairs in both jobs, 73% to 76%, with a calibrated readout error of
+  0.39%. Qubits 120 and 125 are the same case, less strong. The same qubits in two
+  jobs: not chance. No rule that reads only the calibration data would have avoided
+  them. Why they are worse than calibrated **[U]**. Old calibration data, or an effect
+  that only shows when many qubits near them are driven or read together, are
+  candidates. In run 4, the day before, qubit 143 gave its expected bit in 99.5% of the
+  shots, in a kernel of single-qubit gates.
+- **The calibration forecast is about twice the result** at these widths: 76.4% against
+  45.4%, 36.4% against 17.1%. At five qubits it was a few points too high (run 2). The
+  forecast is an upper bound that gets looser with width.
+- **Ones get lost.** At 20 qubits all 0 came in 353 shots and all 1 in 101; at 40, 158
+  and 13. A GHZ state gives both equally often. So most errors turn a 1 into a 0. A
+  qubit in 1 can lose its energy before or during readout (as in runs 4 and 5); that
+  the loss is this large is not explained by the calibrated readout errors **[U]**.
+- **The break of run 5 did not come back.** Pair (19,20) of the 40-qubit chain agreed in
+  54.6% of the shots then and in 88.4% now. Which qubits run 5 used is not known, so
+  its cause stays open **[U]**. And one run is not a measure: the same 20-qubit kernel
+  gave 64.4% and, four hours later, 45.4%.
+- **Swaps.** The router sent 28 `cz` for the 19 `cx` of the 20-qubit chain and 57 for the
+  39 of the 40-qubit chain, so 9 and 18 more. By the calibration data they cost little
+  next to the readouts (`cz` 75.4% against readout 48.3% at 40 qubits).
+- Limits of the trace. It knows where each chain qubit is measured and how often each
+  link is used, not the path a qubit took through the swaps: for a pair that is "not
+  linked at the end of the circuit" it cannot say which `cz` joined them. And this run
+  kept no counts. The script printed its most frequent results shortened, so two
+  different results of the 20-qubit job read `11111..11111` (101 and 90 shots). The
+  second is probably "all 1 but qubit 6", which is IBM qubit 143 reading 0, a guess
+  **[U]**. Since this run the script names a long result by how it differs from all 0
+  or all 1, prints the qubits that read 1 least often with their IBM qubits, and a real
+  run writes every result to `hardware-runs/` ([development.md](development.md) §4).
+- The first try of this run sent no job: IBM answered the trace's GET of `/properties`
+  with HTTP 403 when it came from Python's built-in `urllib`. With `requests`, as in
+  `experiments/fetch_chip_data.py`, the same request gets the data. Why IBM refuses
+  the first **[U]**. The rehearsal could not catch it, because there the request goes
+  to the fake server; `python tests/hardware_trace.py ibm_fez` now checks that step
+  against IBM without a job.
+
+What it does not decide: a rule that drops a link or a qubit above some error (layout,
+Bruno's decision, [roadmap.md](roadmap.md) next step 5). The run speaks for it, one link
+and two readouts, and it shows its limit: the worst qubit of the run would have passed
+any threshold.
