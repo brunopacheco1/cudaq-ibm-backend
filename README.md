@@ -8,14 +8,12 @@ missing link. It is also a learning project, so the code explains the
 quantum ideas behind each step.
 
 > **Status.** Early and unofficial: a learning project, not affiliated with IBM or
-> NVIDIA. The C++ plugin runs `cudaq.sample` on IBM hardware: on `ibm_fez` a Bell pair
-> gave 94% of 1000 shots correlated (2026-11-09) and a 5-qubit GHZ state 90% of 1000
-> shots in `00000` or `11111` (2026-11-10). It is packaged as a wheel for Linux; the first
-> release is the pre-release `v0.1.0rc1`, and with that wheel a Bell pair on `ibm_fez`
-> reached a fidelity of 0.958 (2026-11-11). Not supported yet: `cudaq.observe`,
-> `emulate=True`, macOS. Known bug of `v0.1.0rc1`: a kernel with `mz` on 50 or more
-> qubits does not compile; leave the `mz` out (fixed on `main`). Expect breaking changes.
-> Milestones and risks: [docs/roadmap.md](docs/roadmap.md).
+> NVIDIA. Version 0.1.0 runs `cudaq.sample` on IBM hardware from a wheel for Linux: on
+> `ibm_fez` a Bell pair reached a fidelity of 0.952 (2026-11-12) and a 5-qubit GHZ state
+> 90% of 1000 shots in `00000` or `11111` (2026-11-10). What works and what does not is
+> listed [below](#what-works-and-what-does-not). Not on PyPI; expect breaking changes when
+> CUDA-Q changes `sample` and `observe`. Milestones and risks:
+> [docs/roadmap.md](docs/roadmap.md).
 
 ## Install
 
@@ -24,7 +22,7 @@ as pip `cudaq` 0.16. On a Mac, use a Linux container.
 
 Wheels are attached to the
 [releases](https://github.com/brunopacheco1/cudaq-ibm-backend/releases) of this
-repository. Replace `<version>` with the release you want (the first one is `0.1.0rc1`):
+repository. Replace `<version>` with the release you want, e.g. `0.1.0`:
 
 ```bash
 pip install cudaq

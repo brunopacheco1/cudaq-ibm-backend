@@ -985,3 +985,22 @@ What it does not decide: a rule that drops a link or a qubit above some error (l
 Bruno's decision, [roadmap.md](roadmap.md) next step 5). The run speaks for it, one link
 and two readouts, and it shows its limit: the worst qubit of the run would have passed
 any threshold.
+
+**Run 7, 2026-11-12, the release candidate `v0.1.0rc2`.** Same check as run 3, before the
+final release: wheel `cudaq-ibm` 0.1.0rc2 (aarch64) from the GitHub pre-release, next to pip
+`cudaq` in a plain `python:3.12-slim` container, started by Bruno. On the simulator first
+(free): fidelity 1.000. Then `examples/expectation_from_samples.py --target ibm` on
+`ibm_fez`, three jobs of 1000 shots; pass mark set before the run: fidelity of at least
+0.85 **[V]**.
+
+| Term | Counts | Value |
+|---|---|---|
+| `<ZZ>` | `00`:480 `11`:493 `01`:14 `10`:13 | +0.946 ± 0.010 |
+| `<XX>` | `00`:477 `11`:484 `01`:20 `10`:19 | +0.922 ± 0.012 |
+| `<YY>` | `01`:467 `10`:502 `00`:20 `11`:11 | -0.938 ± 0.011 |
+| Fidelity with the ideal Bell pair | | **0.952 ± 0.005** |
+
+Run 3 gave 0.958 ± 0.005 with `v0.1.0rc1`: the same within the noise. What it shows: the
+quality steps of 2026-11-12 (input checks, the results retry, the order of the shots) did
+not change what a good kernel sends or gets back. Limits as in run 3; the retry itself
+cannot be seen on a run where nothing fails.
