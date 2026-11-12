@@ -29,7 +29,10 @@ config:
   # turn the combined measure back into one per qubit) makes the circuit
   # measure every qubit in allocation order and records which ones the
   # user measured in output_names; processResults keeps those (see
-  # ResultBits.h, decision 0010). Without it, a kernel that measures out of
+  # ResultBits.h, decision 0010). cc-loop-unroll gets maximum-iterations:
+  # its default is 50 rounds, so `mz` on 50 or more qubits did not compile
+  # up to v0.1.0rc1 (tests/test_target_yml.py). 1024 is the limit CUDA-Q
+  # itself uses for the loops of a kernel. Without it, a kernel that measures out of
   # order comes back in the wrong bit order, with any router options
   # (experiments/m3_bit_order.py).
   # The second decomposition, after qubit-mapping, turns the swaps the router
@@ -41,7 +44,7 @@ config:
   # every allocated qubit keeps its place and is measured
   # (docs/decisions/0017; tests/run_fake_ibm_results.py has idle-qubit cases).
   jit-high-level-pipeline: "expand-measurements"
-  jit-mid-level-pipeline: "func.func(erase-implicit-output),decomposition{basis=h,rx,ry,rz,x,z,x(1)},func.func(add-dealloc,combine-quantum-alloc,canonicalize,combine-measurements),expand-measurements,func.func(cc-loop-unroll,canonicalize,factor-quantum-alloc,cse,memtoreg),add-wireset,func.func(assign-wire-indices),qubit-mapping{device=file(%QPU_ARCH%) placement=auto search=sabre},func.func(delay-measurements),decomposition{basis=h,rx,ry,rz,x,z,x(1)},lower-to-cfg,func.func(regtomem),quake-to-cc-prep,func.func(memtoreg{quantum=0})"
+  jit-mid-level-pipeline: "func.func(erase-implicit-output),decomposition{basis=h,rx,ry,rz,x,z,x(1)},func.func(add-dealloc,combine-quantum-alloc,canonicalize,combine-measurements),expand-measurements,func.func(cc-loop-unroll{maximum-iterations=1024},canonicalize,factor-quantum-alloc,cse,memtoreg),add-wireset,func.func(assign-wire-indices),qubit-mapping{device=file(%QPU_ARCH%) placement=auto search=sabre},func.func(delay-measurements),decomposition{basis=h,rx,ry,rz,x,z,x(1)},lower-to-cfg,func.func(regtomem),quake-to-cc-prep,func.func(memtoreg{quantum=0})"
   codegen-emission: qasm2
   library-mode: false
 

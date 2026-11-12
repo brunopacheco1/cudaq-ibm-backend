@@ -63,6 +63,36 @@ def many_gates():
     mz(q[0])
 
 
+# One kernel per width: the width must be a number in the source, or the
+# compiler does not know the size of the register.
+@cudaq.kernel
+def mz_on_49():
+    q = cudaq.qvector(49)
+    x(q[0])
+    mz(q)
+
+
+@cudaq.kernel
+def mz_on_50():
+    q = cudaq.qvector(50)
+    x(q[0])
+    mz(q)
+
+
+@cudaq.kernel
+def mz_on_51():
+    q = cudaq.qvector(51)
+    x(q[0])
+    mz(q)
+
+
+@cudaq.kernel
+def mz_on_150():
+    q = cudaq.qvector(150)
+    x(q[0])
+    mz(q)
+
+
 def compiled_ops(kernel, device: str) -> list[tuple[str, int]]:
     """(operation, number of qubit operands) for each line of the kernel."""
     _, module = kernel.prepare_call()
@@ -104,3 +134,15 @@ def test_routed_ghz20_on_fez_has_no_swap_left():
 def test_every_gate_kind_ends_in_the_known_set():
     for device in ("path(6)", "star(6)", f"file('{fez_device(62)}')"):
         check(many_gates, device)
+
+
+def test_mz_on_a_whole_register_of_any_width_becomes_one_mz_per_qubit():
+    """`mz(q)` reaches the pipeline as a loop over the register, and
+    cc-loop-unroll unrolls 50 rounds at most unless told otherwise. Up to
+    v0.1.0rc1 a kernel with `mz` on 50 or more qubits therefore did not
+    compile (docs/architecture.md, section 8 item 9)."""
+    device = f"file('{fez_device(62)}')"
+    for width, kernel in ((49, mz_on_49), (50, mz_on_50), (51, mz_on_51),
+                          (150, mz_on_150)):
+        ops = check(kernel, device)
+        assert sum(1 for n, _ in ops if n == "mz") == width, width

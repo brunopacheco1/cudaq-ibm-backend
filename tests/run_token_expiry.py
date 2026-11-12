@@ -41,14 +41,16 @@ SERVER = Path(__file__).with_name("fake_ibm_server.py")
 
 
 def start_server(ttl: float = TOKEN_TTL_SECONDS,
-                 polls: int = POLLS_BEFORE_DONE, port: int = PORT):
-    """Start the fake server in expiring-token mode; return (process, log)."""
+                 polls: int = POLLS_BEFORE_DONE, port: int = PORT,
+                 server: Path = SERVER):
+    """Start the fake server in expiring-token mode; return (process, log).
+    `server` is the script to start: the fake server, or one built on it."""
     log = tempfile.NamedTemporaryFile("w+", suffix=".log", delete=False)
     env = dict(os.environ,
                FAKE_IBM_TOKEN_TTL=str(ttl),
                FAKE_IBM_POLLS_BEFORE_DONE=str(polls),
                PYTHONUNBUFFERED="1")
-    process = subprocess.Popen([sys.executable, str(SERVER), str(port)],
+    process = subprocess.Popen([sys.executable, str(server), str(port)],
                                env=env, stdout=log, stderr=subprocess.STDOUT)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:

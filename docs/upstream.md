@@ -1,6 +1,6 @@
 # Upstream contributions to CUDA-Q
 
-Date: 2026-11-10. Status: living list. Opened so far: item 5, as
+Date: 2026-11-12. Status: living list. Opened so far: item 5, as
 [NVIDIA/cuda-quantum#5882](https://github.com/NVIDIA/cuda-quantum/issues/5882), and item 1, as
 [NVIDIA/cuda-quantum#5886](https://github.com/NVIDIA/cuda-quantum/issues/5886).
 Reader: Bruno, before opening an issue or PR on NVIDIA/cuda-quantum.
@@ -27,6 +27,11 @@ Rules before opening anything:
 | 6 | Share the fake IBM server as a mock QPU under `python/tests/utils/mock_qpu/` | In-tree backends test this way **[V]** `python/tests/backends/test_IQM.py` | Nothing; helps reviewers | Only if an in-tree IBM test makes sense |
 | 7 | ~~`sample` on a kernel without `mz` should return one bit per allocated qubit~~ | `oqc` and `anyon` (`emulate=True`) return 2 bits for a 4-qubit kernel that touches 2 qubits; the simulator and four other targets return 4 **[V]** `experiments/m3_idle_qubit.py`. But the specification allows it: an unused qubit "may not appear in the implicit measurement results" **[V]** `algorithmic_primitives.rst`, tag 0.16.0 | - | Dropped 2026-11-10: documented behaviour, not a bug. |
 | 8 | `mapping_reorder_idx` with `placement=auto` | With a modelled backend (bits sorted by qubit, then `reorderIdx`) the order is wrong in 32 of 60 kernels with `placement=auto search=sabre`, 0 of 60 with the default **[V]** `experiments/upstream_reorder_idx.py`. No shipped target uses `placement=auto`, and it is a model, not a run | Nothing: we do not use `reorderIdx` ([decision 0010](decisions/0010-measure-all-then-keep-measured-bits.md)) | Draft written, on hold. Mention in #5 only if asked. |
+| 9 | OpenQASM 2 printer: write angles with full precision | `printParameters` streams the `double` as it is, which gives 7 significant digits **[V]** `TranslateToOpenQASM.cpp:64`: `rx(1.2345678901234567)` reaches a helper as `rx(1.234568e+00)`, and an angle of ten million turns plus half a turn gives a wrong result **[V]** `experiments/limits`, probe `g_angle_very_large`, 2026-11-12 | The rounding of π noted in [architecture.md](architecture.md) §6 | Found 2026-11-12. Not checked on `main` **[U]**. Tracker searched that day ("openqasm precision", issues and pull requests): nothing |
+| 10 | OpenQASM 2 printer: a line break after `reset` | `emitOperation` for `ResetOp` writes `reset q;` with no `\n` **[V]** `TranslateToOpenQASM.cpp:353`; the helper receives `reset var0[0];x var1[0];` on one line **[V]** probe `g_reset` | Nothing yet: the plugin has no `reset` rule ([architecture.md](architecture.md) §8 item 9) | Found 2026-11-12. Not checked on `main` **[U]**. Tracker ("qasm reset"): nothing that fits |
+| 11 | A kernel without `mz` and with a gate of 3 or more controls returns extra bits on hardware targets | `ionq`, `quantinuum`, `oqc` and `anyon` with `emulate=True` return 5 bits for a 4-qubit kernel; the simulator returns 4 **[V]** probe `g_other_hardware_targets_in_emulation` | Nothing | Found 2026-11-12. Read the specification first: #7 looked like a bug and was documented behaviour. Tracker ("ancilla measurement multi-controlled sample"): nothing |
+| 12 | The simulator ends the Python process on an angle that is NaN | `cudaq.sample` on `qpp-cpu` with `rx(nan)`: SIGABRT, "Assertion '__sum > 0' failed" in `std::discrete_distribution` **[V]** probe `g_angle_nan_on_cudaq_simulator` | Nothing | Found 2026-11-12. Not checked on `main` **[U]**. Tracker ("nan angle"): nothing that fits |
+| 13 | `Future::get`: try again after a transient HTTP error while polling | One HTTP 500 ends the wait; the job runs on **[V]** probe `e_poll_500_once`. IBM's client retries five times **[V]** `qiskit-ibm-runtime` 0.52.0 | Nothing here can fix it: the loop is CUDA-Q's | Idea. Close to #1 (same loop) |
 
 ## Issue plan
 
@@ -42,6 +47,7 @@ in this repository, so that they can change freely until opened.
 | - | #7, idle qubits | Dropped | Documented behaviour. |
 | - | `emulate=True` fails after routing when the pipeline has `combine-measurements` | Not planned as it stands | Confirmed in the built plugin **[V]** 2026-11-10 ([architecture.md](architecture.md) §8 item 7), but only with our own pipeline. No shipped target is shown to fail **[U]**. To check in M4, where emulation is fixed on our side anyway. |
 | - | IBM-side findings of the hardware runs (error reported as 1, readout error that includes preparation, forecast too high) | Not for CUDA-Q | Facts about IBM's data ([architecture.md](architecture.md) §3.7, §9.8). |
+| - | #9 to #13, found by the limit probes of 2026-11-12 | Not decided | #9 and #10 are one-line fixes with a clear reproduction: good first pull requests once they are shown on `main`. #11 and #12 need the specification read first. #13 belongs with #1. The limit of 1024 rounds for one loop is not on the list: it is a setting of CUDA-Q's unrolling pass, and the miss at exactly 1024 rounds is fixed on `main` (#5815, pull request #5821 merged 2026-11-02). |
 | - | `cudaq.translate` prints other OpenQASM than a `ServerHelper` receives | Not planned | `translate` runs extra passes ([architecture.md](architecture.md) §9.7). A surprise for us, not shown to be a bug. |
 
 Before opening each one:

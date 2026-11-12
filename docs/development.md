@@ -194,6 +194,22 @@ podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/te
 podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_gates.py --qubit-mark 0.90 --yes-spend-qpu-time
 ```
 
+The limits on real hardware ([architecture.md](architecture.md) §8 item 9): how wide a GHZ
+chain and how many `cx` in a row survive the noise, and what IBM answers to a NaN angle and
+to 0 shots. About 11 jobs. It measures, there is no pass mark: write down what you expect
+before the run. The script waits 13 s between jobs, because IBM takes 5 jobs per minute.
+The rehearsal also needs `stim`:
+
+```bash
+podman exec cudaq-ibm-rc pip install -q fastapi uvicorn python-multipart stim
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --fake
+podman exec -e CUDAQ_IBM_PLUGIN=installed cudaq-ibm-rc python -W ignore /repo/tests/run_ibm_hardware_limits.py --yes-spend-qpu-time
+```
+
+Fewer jobs: `--parts depth`, `--widths 5,20`, `--depths 1,101`. The check of IBM's limit of
+5 jobs per minute is not in the default parts: `--parts rate-limit` sends six one-shot jobs
+without a pause.
+
 ## 5. Optional: VS Code inside the container
 
 1. Install the **Dev Containers** extension on the Mac. Point it at Podman
@@ -234,6 +250,22 @@ python3 tests/run_fake_ibm_results.py      # 26 OK lines: results against CUDA-Q
 The first build downloads the headers (about 50 MB, kept in `build/cache`); later builds
 take about 20 seconds. The CI job `plugin` runs exactly these steps for every `cudaq`
 release the plugin supports.
+
+The limit probes ([architecture.md](architecture.md) §8 item 9) run the same way, by hand,
+not in CI. 215 probes, each in its own process, about 5 minutes on 4 cores:
+
+```bash
+pip install stim                                        # checks circuits too wide to simulate
+python3 experiments/limits/run.py                       # everything
+python3 experiments/limits/run.py gates api --only mz   # some groups, some probes
+python3 experiments/limits/run.py --report /tmp/report.md
+```
+
+Each line starts with the outcome: `same` (equal to CUDA-Q's simulator), `WRONG`, `error`
+(with the message the user sees), `CRASH` or `HANG`. Several probes are meant to end in
+`error` or `HANG`: compare a new report with
+`experiments/limits/report-2026-11-12.md`, do not expect all `same`. With the installed
+wheel: `CUDAQ_IBM_PLUGIN=installed`, as for the other scripts.
 
 Limits: the library runs on systems whose C library is at least as new as the build
 machine's, so a file built on Ubuntu 24.04 is not a release build. On aarch64 the script
