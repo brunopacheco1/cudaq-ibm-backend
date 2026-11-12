@@ -217,6 +217,7 @@ Content-Type:  application/json
 | `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 26 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
 | `tests/gate_rule_kernel.py`, `tests/run_ibm_hardware_gates.py` | A 10-qubit kernel of `rx`, `ry`, `z`, `y` and `u3` with one certain answer: a wrong rewrite rule leaves a known qubit at about half or flips it (§7). The script sends it to real hardware (spends QPU time) or, with `--fake`, to the fake server | Done; ran on `ibm_fez` 2026-11-11, all ten qubits pass (§9.8 run 4) |
 | `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
+| `tests/hardware_trace.py`, `tests/test_hardware_trace.py` | For `run_ibm_hardware_limits.py --trace`: reads the plugin's info log of one job (the `cz` gates sent, the IBM qubit of each result bit) and IBM's calibration data, and prints the links and qubits with the highest errors, what the calibration alone predicts, and where each weak pair was measured. Its tests are in CI | Written 2026-11-12; rehearsed, not yet run on hardware |
 | `tests/run_ibm_hardware_limits.py` | Limits on real hardware (§8 item 9): GHZ chains of 5 to 80 qubits, 1 to 1001 `cx` in a row, a NaN angle and, when asked, six jobs without a pause (that part has not run). It measures; there is no pass mark. Spends QPU time, or `--fake` for a free rehearsal | Ran on `ibm_fez` 2026-11-12 (§9.8 run 5) |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
@@ -802,10 +803,13 @@ the kernel was built to catch. Each of the 11 wrong rules planted in §7 leaves 
   seven qubits and one run this is a guess **[U]**.
 
 **Run 5, 2026-11-12, limits.** `tests/run_ibm_hardware_limits.py --yes-spend-qpu-time`,
-started by Bruno at about 07:00 UTC in the plain container (wheel 0.1.0rc1, aarch64): nine
+started by Bruno at 07:25 UTC (the jobs were created from 07:25 to 07:30 **[V]** IBM's job
+list) in the plain container (wheel 0.1.0rc1, aarch64): nine
 jobs of 1000 shots and one of 10. No pass mark: this run measures where the answers stop
 being usable. The qubits the plugin chose were not logged **[U]**. The first job waited
-196 s in the queue, the others took 7 to 20 s.
+196 s in the queue, the others took 7 to 20 s. IBM's job list shows ten jobs: nine
+completed at 0.03 RUs each, whatever the circuit, so 0.27 RUs for the run, and one failed
+**[V]** screenshots, 2026-11-12. What one RU is, the page does not say **[U]**.
 
 GHZ as a chain, `h` then `cx` from each qubit to the next. "Neighbours agree" is the share
 of shots in which qubits i and i+1 of the chain give the same bit; 50% means no relation.
@@ -850,8 +854,10 @@ What it shows:
 - **A NaN angle costs a job, not a result.** IBM accepts the POST and ends the job as
   `Failed`; the plugin reports IBM's reason: `IBM job ended with status FAILED: Job not
   valid. Error loading QASM circuit with the standard Qiskit loaders: "6,3: Undefined
-  symbol 'nan'.` after 7 s. Whether IBM counts QPU time for it **[U]**.
-- `shots_count=0` returned an empty result in 0 s: CUDA-Q sends no job (§8 item 9).
+  symbol 'nan'.` after 7 s. IBM's page for that job: status code 1603, pending 1 s, time on
+  QPU 0 s, usage 0.00 RUs ("not yet finalized" when read) **[V]** screenshot.
+- `shots_count=0` returned an empty result in 0 s: CUDA-Q sends no job (§8 item 9). IBM's
+  job list agrees: ten jobs, not eleven.
 - The rehearsal before this run did not pass: the container had no Stim, so the fake
   server answered HTTP 500 for 20, 40 and 80 qubits. The real run started anyway,
   because the recipe gave both commands in one block. Since then the rehearsal skips
