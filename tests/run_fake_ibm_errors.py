@@ -60,6 +60,22 @@ NEVER = {
 }
 CASES["future_saved_as_text"] = ("", False, "COUNTS { 00:", True)
 
+# Quality step 2: the results GET is tried again after a transient failure
+# (the job is finished and paid for). Login and chip data are not retried:
+# when they fail, no job has been sent.
+CASES.update({
+    "results_500_once": ("results_500_once", False,
+                         "/results failed (HTTP 500); try 2 of 3", True),
+    "results_500_always": ("results_500", True,
+                           "/results failed after 3 tries", True),
+    "results_404_not_retried": ("results_404", True,
+                                "status code 404", True),
+})
+NEVER["results_404_not_retried"] = "try 2 of"
+# Shorter pauses than the plugin's (2 s, then 4 s) where a case waits for
+# every try; the plugin reads them from this variable.
+RETRY_WAITS_MS = {"results_500_always": "100,100"}
+
 
 def run_case(name: str) -> None:
     """Child process: run one case and print COUNTS or raise."""
@@ -123,7 +139,9 @@ def check(name: str) -> tuple[bool, str]:
         child = subprocess.run(
             [sys.executable, __file__, "--case", name],
             capture_output=True, text=True, timeout=120,
-            env=dict(os.environ, PYTHONUNBUFFERED="1"))
+            env=dict(os.environ, PYTHONUNBUFFERED="1",
+                     **({"CUDAQ_IBM_RETRY_WAITS_MS": RETRY_WAITS_MS[name]}
+                        if name in RETRY_WAITS_MS else {})))
     finally:
         server_lines = stop_server(process, log)
         os.environ.pop("FAKE_IBM_FAULT", None)
