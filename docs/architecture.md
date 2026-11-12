@@ -217,7 +217,7 @@ Content-Type:  application/json
 | `tests/run_fake_ibm_results.py` | Result checks through the built plugin: 26 kernels against CUDA-Q's own simulator (§7). In CI | Done (M4) |
 | `tests/gate_rule_kernel.py`, `tests/run_ibm_hardware_gates.py` | A 10-qubit kernel of `rx`, `ry`, `z`, `y` and `u3` with one certain answer: a wrong rewrite rule leaves a known qubit at about half or flips it (§7). The script sends it to real hardware (spends QPU time) or, with `--fake`, to the fake server | Done; ran on `ibm_fez` 2026-11-11, all ten qubits pass (§9.8 run 4) |
 | `examples/expectation_from_samples.py`, `tests/test_expectation_example.py` | Expectation values without `cudaq.observe` (§8 item 7): basis-change gates, `sample`, average of the parity. Prints `<ZZ>`, `<XX>`, `<YY>` and the fidelity of a Bell pair, on the simulator or on IBM (`--target ibm`, spends QPU time). The four quantum functions are Bruno's. Its tests compare with `cudaq.observe` on `qpp-cpu` (CI) | Done (M4) |
-| `tests/run_ibm_hardware_limits.py` | Limits on real hardware (§8 item 9): GHZ chains of 5 to 80 qubits, 1 to 1001 `cx` in a row, a NaN angle, 0 shots and, when asked, six jobs without a pause. It measures; there is no pass mark. Spends QPU time, or `--fake` for a free rehearsal | Written 2026-11-12; rehearsed, not yet run on hardware |
+| `tests/run_ibm_hardware_limits.py` | Limits on real hardware (§8 item 9): GHZ chains of 5 to 80 qubits, 1 to 1001 `cx` in a row, a NaN angle and, when asked, six jobs without a pause (that part has not run). It measures; there is no pass mark. Spends QPU time, or `--fake` for a free rehearsal | Ran on `ibm_fez` 2026-11-12 (§9.8 run 5) |
 | `tests/run_ibm_hardware.py` | The two kernels of the hardware runs (§9.8). Spends QPU time; refuses to run without `--yes-spend-qpu-time` | Done (M3) |
 | `experiments/` | Scripts behind the **[V]** tags of §9 and of [upstream.md](upstream.md). Not part of the plugin | Evidence |
 | `experiments/limits/` | The limit probes of §8 item 9: `run.py` (runner), `cases_*.py` (the probes), `probe_server.py` (the fake server plus faults, odd chips and Stim for wide circuits), and the report of the last full run | Run by hand, 2026-11-12 |
@@ -347,7 +347,8 @@ Free checks first; only the last one spends QPU time.
   Bruno's go; `--fake` rehearses the same script against the fake server for free. Ran
   once on `ibm_fez`, 2026-11-11: all ten qubits pass (§9.8 run 4).
 - `tests/run_ibm_hardware_limits.py`: width, depth and bad input as real jobs, only with
-  Bruno's go; `--fake` rehearses it for free. Not yet run on hardware.
+  Bruno's go; `--fake` rehearses it for free. Ran once on `ibm_fez`, 2026-11-12 (§9.8
+  run 5).
 - `experiments/limits/run.py`: 215 probes that look for the edges, not for a pass: what
   is wrong, refused, slow, or hangs (§8 item 9). By hand, not in CI: it takes about 5
   minutes on 4 cores and many probes are meant to fail.
@@ -478,7 +479,7 @@ How to run them: [development.md](development.md) §4.
    |---|---|---|---|
    | A gate with 3 or more controls (or a rotation with 2) in a kernel without `mz` [`g_x_with_3_controls_no_mz`] | Each bit string has extra bits: the helper qubits CUDA-Q adds to split the gate are measured too | CUDA-Q's compile path for hardware: `ionq`, `quantinuum`, `oqc` and `anyon` do the same with `emulate=True` [`g_other_hardware_targets_in_emulation`] | Write the `mz`; then the answer is right [`..._and_mz_on_all`] |
    | An angle far above 2π [`g_angle_very_large`] | Ten million turns plus half a turn (62831856.2 rad) should give 1 on every shot; it is sent as `rx(6.283186e+07)` and 81% of the shots give 00 on two qubits. CUDA-Q prints angles in OpenQASM 2 with 7 significant digits **[V]** `TranslateToOpenQASM.cpp:64`. Within one turn the error is below 10⁻⁶ rad and no probe sees it [`g_angle_many_digits`] | CUDA-Q | Reduce angles to one turn in the caller |
-   | `shots_count=0` [`a_shots_0`] | A job with 0 shots is sent; the fake server answers with nothing. What IBM does **[U]** | Plugin (no check) | |
+   | `shots_count=0` [`a_shots_0`] | An empty result and no error. No job is sent: `cudaq.sample` runs the kernel until it has `shots_count` shots, so with 0 it never does **[V]** `python/cudaq/runtime/sample.py:174`, tag 0.16.0; the probe's server sees no POST, and on `ibm_fez` the call returned in 0 s (§9.8 run 5) | CUDA-Q | |
    | The server returns fewer samples than shots, or none [`e_results_half_the_samples`] | Returned as it is | Plugin (no check); only seen with a faulty server | |
    | Named measurement results (`a = mz(q[0])`) [`g_two_named_measurement_registers`] | The counts are right, but only the register `__global__` comes back | Plugin: `processResults` builds one register | |
    | `get_sequential_data()` [`a_result_methods`] | Empty: the order of the shots is dropped, though IBM sends it | Plugin | |
@@ -494,7 +495,7 @@ How to run them: [development.md](development.md) §4.
    | One loop of 1024 rounds or more [`d_one_loop_of_1024_rounds`] | `Could not successfully translate to qasm2` | CUDA-Q unrolls at most 1024 rounds per loop **[V]** `LoopUnroll.cpp:135-138`, and in 0.16.0 not a loop of exactly the limit (NVIDIA/cuda-quantum#5815, closed) | Nested loops, or a builder kernel |
    | `2.0 ** j` with a loop variable [`g_float_power_of_a_loop_variable`] | Same message | CUDA-Q does not fold the power before the OpenQASM printer ("'math.fpowi' op unable to translate") | Halve a variable in the loop; `2 ** j` with integers works up to 2⁶² |
    | A `cudaq.State` as kernel argument [`g_state_from_cudaq_state_object`] | Same message | CUDA-Q: "cannot perform state preparation synthesis on arguments to the kernel" | Pass the amplitudes as a list |
-   | An angle that is NaN or infinite, also from `2 ** 64` in a kernel [`g_angle_nan`] | The job is sent with `rz(nan)`; the fake server refuses it. IBM **[U]** | Plugin (no check). CUDA-Q's own simulator aborts Python on it [`g_angle_nan_on_cudaq_simulator`] | |
+   | An angle that is NaN or infinite, also from `2 ** 64` in a kernel [`g_angle_nan`] | The job is sent with `rz(nan)`; the fake server refuses it. IBM accepts the POST and ends the job as `Failed` with "Undefined symbol 'nan'" **[V]** §9.8 run 5 (NaN only; infinite not tried) | Plugin (no check). CUDA-Q's own simulator aborts Python on it [`g_angle_nan_on_cudaq_simulator`] | |
    | A reply that is not JSON, or lacks a field [`e_login_answers_html`, `e_status_missing`] | The JSON library's own message, e.g. `parse error at line 1, column 1` | Plugin and CUDA-Q | |
    | `url` ending in `/`; a `mapping_file` that is not a device file | HTTP 404; "no chip layout; the kernel was not compiled for 'ibm'" | Plugin | |
 
@@ -535,10 +536,12 @@ How to run them: [development.md](development.md) §4.
    on `ibm_fez`'s wiring: GHZ on 153 qubits as a chain 542 `cz` (152 `cx` written),
    as a star 1361; QFT on 32 qubits 2861, on 100 qubits 34 917 (a 5.6 MB job, 7 to 9 s).
 
-   **What these probes cannot tell.** Where noise drowns the answer (width and depth on
-   a real chip); what IBM answers to `rz(nan)`, to 0 shots and to a 6th job in a minute:
-   `tests/run_ibm_hardware_limits.py` asks a real chip these questions, and has not run
-   yet. Also not covered:
+   **What these probes cannot tell.** Where noise drowns the answer, and what IBM itself
+   answers. `tests/run_ibm_hardware_limits.py` asks a real chip; it ran on `ibm_fez` on
+   2026-11-12 (§9.8 run 5): a GHZ chain holds to about 20 qubits (64%) and breaks at one
+   weak pair by 40 (10.5%); 11 `cx` in a row give 92.9%, 101 give 43.8%; IBM fails a job
+   with `rz(nan)` with a clear reason. Still open: IBM's answer to a 6th job in a minute
+   (`--parts rate-limit`, not run);
    token expiry in a real queue (item 1); `nvq++` and macOS (never run); chips other
    than `ibm_fez`.
 
@@ -797,3 +800,63 @@ the kernel was built to catch. Each of the 11 wrong rules planted in §7 leaves 
 - The three qubits that expect 0 average 99.5%, the seven that expect 1 average 98.7%.
   A qubit in 1 can decay during readout, which would explain it; with three against
   seven qubits and one run this is a guess **[U]**.
+
+**Run 5, 2026-11-12, limits.** `tests/run_ibm_hardware_limits.py --yes-spend-qpu-time`,
+started by Bruno at about 07:00 UTC in the plain container (wheel 0.1.0rc1, aarch64): nine
+jobs of 1000 shots and one of 10. No pass mark: this run measures where the answers stop
+being usable. The qubits the plugin chose were not logged **[U]**. The first job waited
+196 s in the queue, the others took 7 to 20 s.
+
+GHZ as a chain, `h` then `cx` from each qubit to the next. "Neighbours agree" is the share
+of shots in which qubits i and i+1 of the chain give the same bit; 50% means no relation.
+
+| Qubits | All 0 or all 1 | Neighbours agree, mean | Weakest pair |
+|---|---|---|---|
+| 5 | 93.0% | 97.8% | (3,4) 97.2% |
+| 10 | 81.4% | 96.6% | (0,1) 95.7% |
+| 20 | 64.4% | 96.1% | (7,8) 94.5% |
+| 40 | 10.5% | 91.0% | (19,20) 54.6% |
+| 80 | 3.3% | 88.8% | (22,23) 69.8% |
+
+Two qubits, `x` on the first, then an odd number of `cx`: the right answer is `11`.
+
+| `cx` | `11` | `10` | `01` | `00` |
+|---|---|---|---|---|
+| 1 | 96.6% | 1.3% | 1.6% | 0.5% |
+| 11 | 92.9% | 3.1% | 2.4% | 1.6% |
+| 101 | 43.8% | 38.6% | 7.9% | 9.7% |
+| 1001 | 12.9% | 11.6% | 30.5% | 45.0% |
+
+What it shows:
+
+- **Width: usable to about 20 qubits, and then one weak spot ends it.** From 5 to 20
+  qubits each added qubit costs 2.3% to 2.6% of the shots. At that rate 40 qubits would
+  give about 40%; the run gave 10.5%. One pair, (19,20), agrees in 54.6% of the shots:
+  the chain is cut there, and the two halves are close to unrelated. Why **[U]**: the
+  run did not log the qubits. Two candidates. A link with a high `cz` error is still
+  "usable": §9.4 step 1 drops only an error of exactly 1, and the router does not look
+  at errors. Or the two qubits are far apart on the chip and the router joined them
+  with many swaps.
+- **Depth: 11 `cx` are fine, 101 are not.** From 1 to 11 `cx` each one costs 0.4% of the
+  shots. At that rate 101 would give about 65%; the run gave 43.8%. The loss is not
+  spread over the wrong answers: `10` (control right, target wrong) has 38.6%. An error
+  that points the same way in every `cx` adds up over 101 equal gates instead of
+  averaging out; that would explain it, and it is a guess **[U]**. The product of
+  per-gate errors is too hopeful for a circuit that repeats one gate.
+- **1001 `cx` is below chance.** `11` has 12.9%, less than the 25% of noise that hits
+  all four answers alike, and `00` has 45.0%: the first qubit reads 0 in 75.5% of the
+  shots. Qubits lose their energy during a circuit this long and end in 0 (the duration
+  was not measured **[U]**).
+- **A NaN angle costs a job, not a result.** IBM accepts the POST and ends the job as
+  `Failed`; the plugin reports IBM's reason: `IBM job ended with status FAILED: Job not
+  valid. Error loading QASM circuit with the standard Qiskit loaders: "6,3: Undefined
+  symbol 'nan'.` after 7 s. Whether IBM counts QPU time for it **[U]**.
+- `shots_count=0` returned an empty result in 0 s: CUDA-Q sends no job (§8 item 9).
+- The rehearsal before this run did not pass: the container had no Stim, so the fake
+  server answered HTTP 500 for 20, 40 and 80 qubits. The real run started anyway,
+  because the recipe gave both commands in one block. Since then the rehearsal skips
+  what it cannot simulate and says so, and [development.md](development.md) §4 gives
+  the real run its own block.
+- Since this run the script also lists every pair that agrees in less than 90% of the
+  shots. One weak pair means a cut between two qubits; two weak pairs side by side
+  mean the qubit between them.

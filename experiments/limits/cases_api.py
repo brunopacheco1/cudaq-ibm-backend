@@ -51,11 +51,23 @@ def shots_case(shots):
 
 def a_shots_default(): return shots_case(None)
 def a_shots_1(): return shots_case(1)
-def a_shots_0(): return shots_case(0)
+def a_shots_0():
+    """No job is sent: cudaq.sample loops until it has `shots_count` shots,
+    so with 0 it never runs the kernel (python/cudaq/runtime/sample.py:174,
+    tag 0.16.0). The private server shows it: no POST, so no `bytes`."""
+    ibm()
+    got = counts(cudaq.sample(bell, shots_count=0))
+    return {"outcome": "empty" if not got else "UNEXPECTED",
+            "detail": f"{sum(got.values())} samples and no error for "
+                      "shots=0; CUDA-Q sends no job (the Bytes column is "
+                      "empty: the server saw no POST)"}
 def a_shots_negative(): return shots_case(-5)
 def a_shots_100_000(): return shots_case(100_000)
 def a_shots_1_000_000(): return shots_case(1_000_000)
 def a_shots_10_000_000(): return shots_case(10_000_000)
+
+
+a_shots_0.server_env = {}
 
 
 def a_sample_async_one():

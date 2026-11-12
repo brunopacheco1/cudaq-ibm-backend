@@ -2,7 +2,7 @@
 # Licensed under the Apache License 2.0.
 
 """Limits on real hardware: how wide, how deep, and what IBM answers to bad
-input. SPENDS QPU TIME: about 11 jobs with the default parts.
+input. SPENDS QPU TIME: 10 jobs with the default parts.
 
 The limit probes (experiments/limits) run against a fake chip without noise.
 This run asks what only a real chip can answer. It measures; there is no pass
@@ -15,10 +15,12 @@ width       GHZ as a chain on 5, 10, 20, 40 and 80 qubits: h on the first
             and the weakest pair), which shows where a chain breaks.
 depth       Two qubits: x on the first, then 1, 11, 101 and 1001 cx in a
             row. An odd number of cx always gives 11. Printed: the share of
-            11. Pure noise gives 25%.
-bad-input   An angle that is NaN (10 shots) and shots_count=0. The plugin
-            sends both (docs/architecture.md, section 8 item 9). Printed:
-            what IBM answers.
+            11. Noise that hits all four answers alike gives 25%; qubits
+            that lose their energy on the way end in 00, which gives less.
+bad-input   An angle that is NaN (10 shots): the plugin sends it
+            (docs/architecture.md, section 8 item 9); printed: what IBM
+            answers. And shots_count=0, for which CUDA-Q sends no job and
+            returns an empty result.
 rate-limit  Only when named in --parts. Six jobs of one shot without a pause.
             IBM documents 5 jobs per minute per user; printed: what happens
             to the sixth.
@@ -39,16 +41,21 @@ With the installed wheel, set CUDAQ_IBM_PLUGIN=installed first. Fewer jobs:
 --parts depth, --widths 5,20, --depths 1,101.
 
 A free rehearsal against the fake IBM server instead of IBM (needs fastapi,
-uvicorn, python-multipart and stim; no noise, so every share is 100%, the
-NaN angle is refused and no job is refused for coming too fast):
+uvicorn and python-multipart; no noise, so every share is 100%, the NaN
+angle is refused and no job is refused for coming too fast):
 
     python3 tests/run_ibm_hardware_limits.py --fake
+
+The rehearsal samples chains of more than 24 qubits with Stim (pip install
+stim; on Linux aarch64 pip builds it and needs g++). Without Stim it skips
+them and says so.
 
 Credentials: IBM_QUANTUM_API_KEY and IBM_QUANTUM_CRN from the environment,
 or from the git-ignored .env at the repository root. They are never printed.
 """
 
 import argparse
+import importlib.util
 import os
 import sys
 import time
@@ -61,6 +68,8 @@ from run_ibm_hardware import ROOT, load_env_file  # noqa: E402
 FAKE_PORT = 62459
 PARTS = ("width", "depth", "bad-input", "rate-limit")
 SECONDS_BETWEEN_JOBS = 13.0   # IBM: 5 jobs per minute per user
+WIDEST_WITHOUT_STIM = 24      # the fake server's own simulator stops there
+WEAK_PAIR = 0.90              # neighbours that agree less often are listed
 
 
 def ghz_chain(cudaq, n: int):
@@ -145,8 +154,13 @@ class Jobs:
             return None, time.monotonic() - started, text
 
 
-def width_part(jobs, cudaq, widths, shots):
+def width_part(jobs, cudaq, widths, shots, widest):
     for n in widths:
+        if n > widest:
+            print(f"LIMIT width {n:>4}: skipped in this rehearsal: the fake "
+                  f"server needs Stim above {widest} qubits (pip install "
+                  "stim). The real run does not need it.")
+            continue
         counts, seconds, error = jobs.sample(ghz_chain(cudaq, n), shots)
         if error:
             print(f"LIMIT width {n:>4}: ERROR after {seconds:.0f} s: {error}")
@@ -160,6 +174,16 @@ def width_part(jobs, cudaq, widths, shots):
               f"{sum(pairs) / len(pairs):.1%}, weakest pair "
               f"({weakest},{weakest + 1}) {pairs[weakest]:.1%}; "
               f"{seconds:.0f} s; most frequent: {most_frequent(counts)}")
+        weak = [(i, share) for i, share in enumerate(pairs)
+                if share < WEAK_PAIR]
+        if weak:
+            # One weak pair: the chain broke between two qubits. Two weak
+            # pairs side by side, (i-1,i) and (i,i+1): qubit i itself.
+            print(f"LIMIT width {n:>4}: pairs that agree in less than "
+                  f"{WEAK_PAIR:.0%} of the shots: "
+                  + ", ".join(f"({i},{i + 1}) {share:.1%}"
+                              for i, share in weak[:20])
+                  + (f" and {len(weak) - 20} more" if len(weak) > 20 else ""))
 
 
 def depth_part(jobs, cudaq, depths, shots):
@@ -176,17 +200,24 @@ def depth_part(jobs, cudaq, depths, shots):
 
 
 def bad_input_part(jobs, cudaq):
-    for label, kernel, shots in (
-            ("angle NaN, 10 shots", one_rx(cudaq, float("nan")), 10),
-            ("shots_count=0", one_x(cudaq), 0)):
-        counts, seconds, error = jobs.sample(kernel, shots)
-        if error:
-            print(f"LIMIT bad input, {label}: refused after {seconds:.0f} s: "
-                  f"{error}")
-        else:
-            print(f"LIMIT bad input, {label}: ACCEPTED, "
-                  f"{sum(counts.values())} samples back after {seconds:.0f} s"
-                  f": {most_frequent(counts) or 'nothing'}")
+    counts, seconds, error = jobs.sample(one_rx(cudaq, float("nan")), 10)
+    if error:
+        print(f"LIMIT bad input, angle NaN, 10 shots: refused after "
+              f"{seconds:.0f} s: {error}")
+    else:
+        print(f"LIMIT bad input, angle NaN, 10 shots: ACCEPTED, "
+              f"{sum(counts.values())} samples back after {seconds:.0f} s: "
+              f"{most_frequent(counts) or 'nothing'}")
+    # No job: cudaq.sample runs the kernel until it has shots_count shots,
+    # so with 0 it never sends one (sample.py:174, tag 0.16.0). Not counted
+    # as a job and not paced.
+    try:
+        counts = dict(cudaq.sample(one_x(cudaq), shots_count=0).items())
+        print(f"LIMIT bad input, shots_count=0: no job is sent; "
+              f"{sum(counts.values())} samples and no error")
+    except Exception as error:
+        print("LIMIT bad input, shots_count=0: "
+              f"{' '.join(str(error).split())[:300]}")
 
 
 def rate_limit_part(jobs, cudaq):
@@ -247,7 +278,7 @@ def main() -> int:
 
     planned = ((len(args.widths) if "width" in parts else 0)
                + (len(args.depths) if "depth" in parts else 0)
-               + (2 if "bad-input" in parts else 0)
+               + (1 if "bad-input" in parts else 0)
                + (6 if "rate-limit" in parts else 0))
     server = None
     if args.fake:
@@ -265,6 +296,8 @@ def main() -> int:
                       url=f"http://localhost:{FAKE_PORT}/api",
                       iam_url=f"http://localhost:{FAKE_PORT}/identity/token")
         pause = 0.0
+        widest = (max(args.widths) if importlib.util.find_spec("stim")
+                  else WIDEST_WITHOUT_STIM)
     else:
         load_env_file()
         for name in ("IBM_QUANTUM_API_KEY", "IBM_QUANTUM_CRN"):
@@ -273,6 +306,7 @@ def main() -> int:
                 return 2
         target = dict(backend=args.backend)
         pause = SECONDS_BETWEEN_JOBS
+        widest = max(args.widths)
 
     import cudaq
 
@@ -283,7 +317,7 @@ def main() -> int:
         cudaq.set_target("ibm", **target)
         jobs = Jobs(cudaq, pause)
         if "width" in parts:
-            width_part(jobs, cudaq, args.widths, args.shots)
+            width_part(jobs, cudaq, args.widths, args.shots, widest)
         if "depth" in parts:
             depth_part(jobs, cudaq, args.depths, args.shots)
         if "bad-input" in parts:
