@@ -25,7 +25,7 @@ rough, for part-time work. Each milestone is shippable.
    The second, a feature request, is open since the same day:
    [NVIDIA/cuda-quantum#5886](https://github.com/NVIDIA/cuda-quantum/issues/5886) ([upstream.md](upstream.md) #1,
    `getHeaders()` on every poll). Follow the answer; the pull request comes after it.
-2. After M4: use the release (`v0.1.0rc1`) and collect what breaks. Open items: a macOS
+2. After M4: use the release (`v0.1.0`) and collect what breaks. Open items: a macOS
    wheel ([decision 0014](decisions/0014-first-release-for-linux-x86-64-and-aarch64.md));
    the package name before PyPI
    ([decision 0015](decisions/0015-github-release-first-settle-the-name-before-pypi.md));
@@ -66,8 +66,11 @@ rough, for part-time work. Each milestone is shippable.
      set a threshold, and what to do when too few qubits pass;
      why 101 equal `cx` lose more than their per-gate error says. Not run: IBM's answer
      to a 6th job in a minute (`--parts rate-limit`).
-   - A release after `v0.1.0rc1` (Bruno tags it): it carries the fix for `mz` on 50 or
-     more qubits, which the released wheel does not have.
+   - Releases: **done** 2026-11-12. Bruno chose a final GitHub Release before PyPI
+     (decision card, same day; PyPI waits for the name, [decision 0015](decisions/0015-github-release-first-settle-the-name-before-pypi.md)).
+     `v0.1.0rc2` carries the fix for `mz` on 50 or more qubits and quality steps 1 to 4;
+     from its wheel a Bell pair on `ibm_fez` reached fidelity 0.952 ± 0.005
+     ([architecture.md](architecture.md) §9.8 run 7). `v0.1.0` is the same code.
 
 ## 3. Open risks
 
@@ -85,7 +88,7 @@ Evidence is in the linked decision records.
 | Label -> qubit search refuses large circuits | **[V]** fine up to about 100 qubits (architecture §8 item 5) | Goes away when upstream passes the layout ([upstream.md](upstream.md) #5) |
 | A failed request while waiting loses a job that is paid for | **[V]** 2026-11-12, fake server: one HTTP 500 during the wait ends `sample`; nothing tries again ([architecture.md](architecture.md) §8 item 9) | For jobs that matter: `sample_async`, keep `str(future)`, ask again. Upstream: [upstream.md](upstream.md) #13 |
 | IBM takes 5 jobs per minute per user | **[V]** IBM REST reference, read 2026-11-12. The plugin does not wait and try again: the 6th job fails, and a `sample` over a list of argument sets loses the answers before it **[V]** fake server, same day. IBM's real reply **[U]** | Keep a list of argument sets to 5, or space the jobs. A hardware check costs no QPU time if the 6th job is refused |
-| The released wheel `v0.1.0rc1` cannot compile a kernel with `mz` on 50 or more qubits | **[V]** 2026-11-12, probes `s_x_pattern_with_mz_050` and three more ([architecture.md](architecture.md) §8 item 9). Fixed on `main` after this change, not in a release yet | With `v0.1.0rc1`: leave the `mz` out. A new release candidate carries the fix (Bruno tags it) |
+| The released wheel `v0.1.0rc1` cannot compile a kernel with `mz` on 50 or more qubits | **[V]** 2026-11-12, probes `s_x_pattern_with_mz_050` and three more ([architecture.md](architecture.md) §8 item 9). Fixed in `v0.1.0rc2` and later | With `v0.1.0rc1` only: leave the `mz` out. Use `v0.1.0` |
 | A result with the wrong shape and no error | **[V]** 2026-11-12: extra bits for a gate with 3 or more controls in a kernel without `mz` (CUDA-Q does this for every hardware target); named measurement results come back as one register ([architecture.md](architecture.md) §8 item 9) | Write the `mz`. Named results: next step 5 |
 | Real `/properties` differs from the FakeFez snapshot | **[V]** 2026-11-10: real `ibm_fez` data parses with 0 unreadable entries; it has no "operational" item per qubit, and marks stale benchmarks with an error of 1 (architecture §3.7) | The plugin stops rather than guess, and leaves out what has an error of 1 ([decision 0011](decisions/0011-stop-when-properties-cannot-be-read.md)) |
 | Plugin ABI vs pip `cudaq` | **[V]** for Linux x86_64 and aarch64, 2026-11-11: built against the pip wheel of `cudaq` 0.16.0, the plugin loads into pip `cudaq` 0.16.0 and 0.16.0.post1 and passes the fake-server cases ([architecture.md](architecture.md) §8 item 4). macOS **[U]** | Workflow `wheels` on every pull request, for every supported `cudaq` release; the dev container build stays as the fallback ([decision 0013](decisions/0013-build-against-the-pip-wheel.md)). macOS later |
