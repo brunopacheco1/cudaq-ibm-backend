@@ -393,11 +393,16 @@ def main() -> int:
         if args.trace and "width" in parts:
             # Now, and not after the jobs: the plugin reads the same data
             # when it compiles, and IBM renews it a few times a day.
-            properties = hardware_trace.fetch_properties(
-                target["backend"], os.environ["IBM_QUANTUM_API_KEY"],
-                os.environ["IBM_QUANTUM_CRN"],
-                **({"url": target["url"], "iam_url": target["iam_url"]}
-                   if args.fake else {}))
+            try:
+                properties = hardware_trace.fetch_properties(
+                    target["backend"], os.environ["IBM_QUANTUM_API_KEY"],
+                    os.environ["IBM_QUANTUM_CRN"],
+                    **({"url": target["url"], "iam_url": target["iam_url"]}
+                       if args.fake else {}))
+            except Exception as error:  # noqa: BLE001
+                print(f"RESULT: no job sent. --trace could not read IBM's "
+                      f"calibration data: {type(error).__name__}: {error}")
+                return 2
             trace = (target, *hardware_trace.chip_errors(properties))
         if "width" in parts:
             width_part(jobs, cudaq, args.widths, args.shots, widest, trace)

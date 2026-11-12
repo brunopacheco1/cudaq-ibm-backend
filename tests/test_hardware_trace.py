@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import responses
 
 sys.path.insert(0, str(Path(__file__).parent))
 import hardware_trace  # noqa: E402
@@ -84,3 +85,45 @@ def test_the_report_names_the_bad_link_and_the_qubits_of_a_weak_pair():
             "errors 8.00% and 9.00%; linked, cz error 20.00%, used by 2 cz"
             in lines[3])
     assert "weak pair (1,2)" in lines[4] and "cz error unknown" in lines[4]
+
+
+@responses.activate
+def test_fetch_properties_logs_in_and_sends_token_and_crn():
+    responses.post("https://iam.test/identity/token",
+                   json={"access_token": "t0k"})
+    responses.get("https://api.test/api/v1/backends/ibm_x/properties",
+                  json={"qubits": [], "gates": []})
+    data = hardware_trace.fetch_properties(
+        "ibm_x", "k3y", "crn-1", url="https://api.test/api",
+        iam_url="https://iam.test/identity/token")
+    assert data == {"qubits": [], "gates": []}
+    login, get = responses.calls
+    assert "apikey=k3y" in login.request.body
+    assert get.request.headers["Authorization"] == "Bearer t0k"
+    assert get.request.headers["Service-CRN"] == "crn-1"
+    # The key goes to the login only.
+    assert "k3y" not in str(get.request.headers)
+
+
+@responses.activate
+def test_fetch_properties_says_the_http_status_when_ibm_refuses():
+    responses.post("https://iam.test/identity/token",
+                   json={"access_token": "t0k"})
+    responses.get("https://api.test/api/v1/backends/ibm_x/properties",
+                  body="error code: 1010", status=403)
+    with pytest.raises(RuntimeError, match="HTTP 403.*error code: 1010"):
+        hardware_trace.fetch_properties(
+            "ibm_x", "k3y", "crn-1", url="https://api.test/api",
+            iam_url="https://iam.test/identity/token")
+
+
+@responses.activate
+def test_fetch_properties_never_prints_a_failed_login_body():
+    responses.post("https://iam.test/identity/token",
+                   body="apikey k3y is wrong", status=400)
+    with pytest.raises(RuntimeError) as failure:
+        hardware_trace.fetch_properties(
+            "ibm_x", "k3y", "crn-1", url="https://api.test/api",
+            iam_url="https://iam.test/identity/token")
+    assert "HTTP 400" in str(failure.value)
+    assert "k3y" not in str(failure.value)

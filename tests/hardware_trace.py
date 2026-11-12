@@ -20,10 +20,7 @@ circuit and every sample. The API key goes to IBM's login only, over
 verified TLS, as in experiments/fetch_chip_data.py; it is never printed.
 """
 
-import json
 import re
-import urllib.parse
-import urllib.request
 
 API_URL = "https://quantum.cloud.ibm.com/api"
 IAM_URL = "https://iam.cloud.ibm.com/identity/token"
@@ -82,22 +79,31 @@ def chip_errors(properties: dict) -> tuple[dict, dict]:
 
 def fetch_properties(backend: str, key: str, crn: str, url: str = API_URL,
                      iam_url: str = IAM_URL) -> dict:
-    """IBM's calibration data for `backend`. Two requests, no job."""
-    login = urllib.request.Request(
-        iam_url, method="POST",
-        data=urllib.parse.urlencode({
-            "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
-            "apikey": key}).encode(),
-        headers={"Accept": "application/json",
-                 "Content-Type": "application/x-www-form-urlencoded"})
-    with urllib.request.urlopen(login, timeout=30) as reply:
-        token = json.load(reply)["access_token"]
-    get = urllib.request.Request(
+    """IBM's calibration data for `backend`. Two requests, no job.
+
+    With `requests`, as in experiments/fetch_chip_data.py: IBM answered a GET
+    from Python's built-in urllib with HTTP 403 (2026-11-12). CUDA-Q installs
+    `requests`. Raises RuntimeError with the HTTP status when IBM refuses."""
+    import requests
+
+    login = requests.post(
+        iam_url,
+        data={"grant_type": "urn:ibm:params:oauth:grant-type:apikey",
+              "apikey": key},
+        headers={"Accept": "application/json"}, timeout=30)
+    if not login.ok:
+        # Not the body: a login reply is no place to print from.
+        raise RuntimeError(f"IBM login failed: HTTP {login.status_code}")
+    reply = requests.get(
         f"{url}/v1/backends/{backend}/properties",
-        headers={"Authorization": f"Bearer {token}", "Service-CRN": crn,
-                 "Accept": "application/json"})
-    with urllib.request.urlopen(get, timeout=60) as reply:
-        return json.load(reply)
+        headers={"Authorization": f"Bearer {login.json()['access_token']}",
+                 "Service-CRN": crn, "Accept": "application/json"},
+        timeout=60)
+    if not reply.ok:
+        raise RuntimeError(
+            f"GET /v1/backends/{backend}/properties failed: HTTP "
+            f"{reply.status_code}: {reply.text[:200]!r}")
+    return reply.json()
 
 
 def percent(value) -> str:
@@ -168,3 +174,43 @@ def report(label: str, circuit: dict, readout: dict, links: dict,
             f"{a} and {b}: readout errors {percent(readout.get(a))} and "
             f"{percent(readout.get(b))}; {how}")
     return lines
+
+
+def main() -> int:
+    """Free check of step 2: read the calibration data, print a summary."""
+    import argparse
+    import os
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from run_ibm_hardware import load_env_file
+
+    parser = argparse.ArgumentParser(
+        description="Read IBM's calibration data of a backend and print a "
+                    "summary. One login and one GET: no job, no QPU time.")
+    parser.add_argument("backend", nargs="?", default="ibm_fez")
+    args = parser.parse_args()
+    load_env_file()
+    for name in ("IBM_QUANTUM_API_KEY", "IBM_QUANTUM_CRN"):
+        if not os.environ.get(name):
+            print(f"Set {name} (environment or .env).")
+            return 2
+    try:
+        readout, links = chip_errors(fetch_properties(
+            args.backend, os.environ["IBM_QUANTUM_API_KEY"],
+            os.environ["IBM_QUANTUM_CRN"]))
+    except Exception as error:  # noqa: BLE001 - any failure is the answer
+        print(f"TRACE-CHECK: failed: {type(error).__name__}: {error}")
+        return 1
+    worst = sorted((item for item in links.items() if item[1] is not None),
+                   key=lambda item: -item[1])[:5]
+    print(f"TRACE-CHECK: {args.backend}: readout error for {len(readout)} "
+          f"qubits, cz error for {len(links)} links. Highest cz errors: "
+          + ", ".join(f"{a}-{b} {percent(error)}" for (a, b), error in worst))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
