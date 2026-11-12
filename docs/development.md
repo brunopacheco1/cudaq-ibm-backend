@@ -235,6 +235,22 @@ The first build downloads the headers (about 50 MB, kept in `build/cache`); late
 take about 20 seconds. The CI job `plugin` runs exactly these steps for every `cudaq`
 release the plugin supports.
 
+The limit probes ([architecture.md](architecture.md) §8 item 9) run the same way, by hand,
+not in CI. 210 probes, each in its own process, about 5 minutes on 4 cores:
+
+```bash
+pip install stim                                        # checks circuits too wide to simulate
+python3 experiments/limits/run.py                       # everything
+python3 experiments/limits/run.py gates api --only mz   # some groups, some probes
+python3 experiments/limits/run.py --report /tmp/report.md
+```
+
+Each line starts with the outcome: `same` (equal to CUDA-Q's simulator), `WRONG`, `error`
+(with the message the user sees), `CRASH` or `HANG`. Several probes are meant to end in
+`error` or `HANG`: compare a new report with
+`experiments/limits/report-2026-11-12.md`, do not expect all `same`. With the installed
+wheel: `CUDAQ_IBM_PLUGIN=installed`, as for the other scripts.
+
 Limits: the library runs on systems whose C library is at least as new as the build
 machine's, so a file built on Ubuntu 24.04 is not a release build. On aarch64 the script
 runs in the workflow of §7 **[V]**; macOS is not tested **[U]**.
