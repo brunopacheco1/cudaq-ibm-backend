@@ -46,6 +46,15 @@ angle is refused and no job is refused for coming too fast):
 
     python3 tests/run_ibm_hardware_limits.py --fake
 
+--trace (width part only) also says where each chain ran: for every job,
+the links and qubits with the highest errors in IBM's calibration data, what
+that data alone predicts for the circuit, and the IBM qubits of every weak
+pair. It costs one login and one GET more, no extra job (hardware_trace.py).
+To look at one width again:
+
+    python3 tests/run_ibm_hardware_limits.py --parts width --widths 40 \
+        --trace --yes-spend-qpu-time
+
 The rehearsal samples chains of more than 24 qubits with Stim (pip install
 stim; on Linux aarch64 pip builds it and needs g++). Without Stim it skips
 them and says so.
@@ -56,12 +65,15 @@ or from the git-ignored .env at the repository root. They are never printed.
 
 import argparse
 import importlib.util
+import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import hardware_trace  # noqa: E402
 import plugin_under_test  # noqa: E402
 from run_ibm_hardware import ROOT, load_env_file  # noqa: E402
 
@@ -154,14 +166,59 @@ class Jobs:
             return None, time.monotonic() - started, text
 
 
-def width_part(jobs, cudaq, widths, shots, widest):
+def child(n: int, shots: int, target: dict) -> int:
+    """One GHZ job in a process of its own, so that the parent can read the
+    plugin's info log of exactly this job. Prints one line for the parent."""
+    import cudaq
+    try:
+        plugin_under_test.register(cudaq)
+        cudaq.set_target("ibm", **target)
+        counts = dict(cudaq.sample(ghz_chain(cudaq, n),
+                                   shots_count=shots).items())
+        print("\nCHILD-COUNTS " + json.dumps(counts), flush=True)
+    except Exception as error:
+        print("\nCHILD-ERROR " + " ".join(str(error).split())[:300],
+              flush=True)
+    return 0
+
+
+def traced_sample(jobs, n: int, shots: int, target: dict):
+    """(counts, seconds, error text, the job's info log)."""
+    jobs.wait_for_pace()
+    jobs.sent += 1
+    started = time.monotonic()
+    done = subprocess.run(
+        [sys.executable, "-W", "ignore", __file__, "--child",
+         json.dumps({"n": n, "shots": shots, "target": target})],
+        env=dict(os.environ, CUDAQ_LOG_LEVEL="info"),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    seconds = time.monotonic() - started
+    counts = error = None
+    for line in done.stdout.splitlines():
+        if line.startswith("CHILD-COUNTS "):
+            counts = json.loads(line[len("CHILD-COUNTS "):])
+        elif line.startswith("CHILD-ERROR "):
+            error = line[len("CHILD-ERROR "):]
+    if counts is None:
+        jobs.failed += 1
+        error = error or f"the job's process ended with code {done.returncode}"
+    return counts, seconds, error, done.stdout
+
+
+def width_part(jobs, cudaq, widths, shots, widest, trace=None):
+    """`trace`: None, or (target, readout errors, link errors)."""
     for n in widths:
         if n > widest:
             print(f"LIMIT width {n:>4}: skipped in this rehearsal: the fake "
                   f"server needs Stim above {widest} qubits (pip install "
                   "stim). The real run does not need it.")
             continue
-        counts, seconds, error = jobs.sample(ghz_chain(cudaq, n), shots)
+        log = None
+        if trace:
+            counts, seconds, error, log = traced_sample(jobs, n, shots,
+                                                        trace[0])
+        else:
+            counts, seconds, error = jobs.sample(ghz_chain(cudaq, n), shots)
         if error:
             print(f"LIMIT width {n:>4}: ERROR after {seconds:.0f} s: {error}")
             continue
@@ -184,6 +241,14 @@ def width_part(jobs, cudaq, widths, shots, widest):
                   + ", ".join(f"({i},{i + 1}) {share:.1%}"
                               for i, share in weak[:20])
                   + (f" and {len(weak) - 20} more" if len(weak) > 20 else ""))
+        if trace:
+            try:
+                for line in hardware_trace.report(
+                        f"TRACE width {n:>4}", hardware_trace.parse_log(log),
+                        trace[1], trace[2], [i for i, _ in weak]):
+                    print(line)
+            except ValueError as problem:
+                print(f"TRACE width {n:>4}: no trace: {problem}")
 
 
 def depth_part(jobs, cudaq, depths, shots):
@@ -257,12 +322,20 @@ def main() -> int:
     parser.add_argument("--depths", type=numbers, default=[1, 11, 101, 1001],
                         help="numbers of cx; use odd numbers")
     parser.add_argument("--shots", type=int, default=1000)
+    parser.add_argument("--trace", action="store_true",
+                        help="width part: also print the IBM links and "
+                             "qubits each job used, with their errors in "
+                             "IBM's calibration data")
+    parser.add_argument("--child", help=argparse.SUPPRESS)
     parser.add_argument("--yes-spend-qpu-time", action="store_true",
                         help="confirms that real jobs may be sent")
     parser.add_argument("--fake", action="store_true",
                         help="rehearsal against the fake IBM server: free, "
                              "never touches IBM")
     args = parser.parse_args()
+    if args.child:      # started by traced_sample(), never by hand
+        job = json.loads(args.child)
+        return child(job["n"], job["shots"], job["target"])
     parts = [part for part in args.parts.split(",") if part]
     if args.fake == args.yes_spend_qpu_time:
         print("Refusing to run: add --yes-spend-qpu-time to send real jobs, "
@@ -316,8 +389,18 @@ def main() -> int:
         plugin_under_test.register(cudaq)
         cudaq.set_target("ibm", **target)
         jobs = Jobs(cudaq, pause)
+        trace = None
+        if args.trace and "width" in parts:
+            # Now, and not after the jobs: the plugin reads the same data
+            # when it compiles, and IBM renews it a few times a day.
+            properties = hardware_trace.fetch_properties(
+                target["backend"], os.environ["IBM_QUANTUM_API_KEY"],
+                os.environ["IBM_QUANTUM_CRN"],
+                **({"url": target["url"], "iam_url": target["iam_url"]}
+                   if args.fake else {}))
+            trace = (target, *hardware_trace.chip_errors(properties))
         if "width" in parts:
-            width_part(jobs, cudaq, args.widths, args.shots, widest)
+            width_part(jobs, cudaq, args.widths, args.shots, widest, trace)
         if "depth" in parts:
             depth_part(jobs, cudaq, args.depths, args.shots)
         if "bad-input" in parts:

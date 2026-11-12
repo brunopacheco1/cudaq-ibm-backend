@@ -51,9 +51,8 @@ rough, for part-time work. Each milestone is shippable.
      our pipeline.
    - Hardware: the limits run of 2026-11-12 is done ([architecture.md](architecture.md)
      §9.8 run 5). What it opens, all Bruno's to decide (layout and the quantum side):
-     why a GHZ chain breaks at one pair between 20 and 40 qubits (run GHZ-40 again with
-     `CUDAQ_LOG_LEVEL=info` to see the qubits, and look at the `cz` errors of the links
-     used); whether links with a high `cz` error should be dropped like broken ones;
+     why a GHZ chain breaks at one pair between 20 and 40 qubits (run GHZ-40 again with `--trace`, which prints the links and qubits used and their
+     errors in IBM's calibration data, [development.md](development.md) §4); whether links with a high `cz` error should be dropped like broken ones;
      why 101 equal `cx` lose more than their per-gate error says. Not run: IBM's answer
      to a 6th job in a minute (`--parts rate-limit`).
    - A release after `v0.1.0rc1` (Bruno tags it): it carries the fix for `mz` on 50 or
